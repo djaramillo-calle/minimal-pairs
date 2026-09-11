@@ -82,7 +82,8 @@ object RenderPlan {
             .filter { it.trainable && !it.productionOnly }
             .associate { c -> c.id to c.trainableWords() }
         val allWords = byContrast.values.flatten().toSet()
-        // Anything on disk counts, including words of an older catalog.
+        // Only the installed catalog's words are counted (clips of an older
+        // catalog left on disk are ignored, unlike the script's scan).
         val sizes = HashMap<String, Long>()
         val present = LinkedHashSet<String>()
         for (w in allWords.sorted()) {

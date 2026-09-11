@@ -126,6 +126,8 @@ data class SettingsUi(
     val azureKeySet: Boolean = false,
     val azureMessage: String? = null,
     val azureOk: Boolean? = null,
+    /** A download or import is writing the pack directory (the renderer must wait). */
+    val packBusy: Boolean = false,
 )
 
 /**
@@ -180,8 +182,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch { bootstrap() }
         viewModelScope.launch {
+            var wasRunning = false
             downloader.state.collect { s ->
-                if (s is ClipDownloader.State.Done) { pack.reload(); recompute() }
+                if (s is ClipDownloader.State.Done) pack.reload()
+                if (s is ClipDownloader.State.Done || wasRunning != s.isRunning) recompute()
+                wasRunning = s.isRunning
             }
         }
         viewModelScope.launch {
@@ -273,7 +278,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             packEmpty = merged.isEmpty || merged.words.isEmpty(),
             // Offer the download until a pack that says `complete: true` is installed
             // (a placeholder pack downloaded by an older build must not hide the button).
-            canDownload = merged.downloaded?.complete != true && !downloader.state.value.isRunning,
+            canDownload = merged.downloaded?.complete != true && !downloader.state.value.isRunning && !renderer.state.value.isRunning,
             schedulerError = schedulerError,
             planMessage = planResult.message,
             lastError = _home.value.lastError,
@@ -294,6 +299,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             catalogVersion = cat.version,
             azureRegion = prefs.azureRegion ?: "",
             azureKeySet = !prefs.azureKey.isNullOrEmpty(),
+            packBusy = downloader.state.value.isRunning,
         )
         viewModelScope.launch {
             val bytes = pack.downloadedBytes()
@@ -343,6 +349,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDownload() {
+        if (renderer.state.value.isRunning) return
         downloader.reset()
         val cat = catalog
         downloader.start(viewModelScope, cat?.version ?: "", cat?.allTrainableWords() ?: emptySet())
@@ -351,6 +358,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Settings → "Import clips.zip": install a pack the user picked with the file picker. */
     fun importPack(uri: android.net.Uri) {
+        if (renderer.state.value.isRunning) return
         downloader.reset()
         val cat = catalog
         downloader.startFromUri(viewModelScope, uri, cat?.version ?: "", cat?.allTrainableWords() ?: emptySet())
@@ -365,6 +373,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun saveAzure(region: String, key: String) {
         val r = com.djaramillo.minimalpairs.clips.RenderPlan.normalizeRegion(region)
         if (r == null) { azureMessage("azure:bad-region", false); return }
+        if (key.isBlank() && prefs.azureKey.isNullOrEmpty()) { azureMessage("azure:no-key", false); return }
         val k = if (key.isBlank()) prefs.azureKey else com.djaramillo.minimalpairs.clips.RenderPlan.normalizeKey(key)
         if (k == null) { azureMessage("azure:bad-key", false); return }
         prefs.azureRegion = r
@@ -389,7 +398,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val voices = com.djaramillo.minimalpairs.clips.AzureTts(r, k).listBritishVoices()
                 val wanted = com.djaramillo.minimalpairs.clips.RenderPlan.voicesFor(catalog ?: container.catalog())
                 val missing = wanted.filter { it !in voices }
-                azureMessage(if (missing.isEmpty()) "azure:ok:${voices.size}" else "azure:missing:${missing.joinToString(", ")}", missing.isEmpty())
+                azureMessage(if (missing.isEmpty()) "azure:ok:${voices.size}:${wanted.size}" else "azure:missing:${missing.joinToString(", ")}", missing.isEmpty())
             } catch (e: Exception) {
                 azureMessage(e.message ?: e.javaClass.simpleName, false)
             }
@@ -400,8 +409,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val r = prefs.azureRegion; val k = prefs.azureKey
         val cat = catalog
         if (r.isNullOrEmpty() || k.isNullOrEmpty() || cat == null) { azureMessage("azure:no-key", false); return }
+        if (downloader.state.value.isRunning) return
         renderer.reset()
-        renderer.start(viewModelScope, cat, r, k)
+        renderer.start(container.scope, cat, r, k)
     }
 
     fun cancelRender() = renderer.cancel()
@@ -411,6 +421,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteDownloaded() {
+        if (renderer.state.value.isRunning) return
         viewModelScope.launch {
             downloader.deleteDownloaded()
             recompute()

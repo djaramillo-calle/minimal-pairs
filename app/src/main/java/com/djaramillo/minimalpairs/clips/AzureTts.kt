@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.UnknownHostException
 
 /**
  * The two Azure Speech REST calls the app makes with the user's own key:
@@ -32,7 +33,12 @@ class AzureTts(private val region: String, private val key: String) {
         }
     }
 
-    /** Render one word; retries transient failures (429, 5xx, network) up to [ATTEMPTS] times. */
+    /**
+     * Render one word; retries transient failures (429, 5xx, network) up to
+     * [ATTEMPTS] times. Throws [Fatal] for problems that will not go away by
+     * trying the next word (bad key, bad region, unreachable host, a very long
+     * Retry-After): the renderer stops the run on those.
+     */
     suspend fun synthesize(voice: String, word: String): ByteArray {
         var last: IOException? = null
         for (attempt in 1..ATTEMPTS) {
@@ -41,7 +47,7 @@ class AzureTts(private val region: String, private val key: String) {
                 return synthesizeOnce(voice, word)
             } catch (e: Transient) {
                 last = e
-                delay(RenderPlan.retryDelayMs(attempt, e.retryAfter))
+                if (attempt < ATTEMPTS) delay(RenderPlan.retryDelayMs(attempt, e.retryAfter))
             }
         }
         throw last ?: IOException("synthesis failed")
@@ -53,15 +59,31 @@ class AzureTts(private val region: String, private val key: String) {
         c.setRequestProperty("Content-Type", "application/ssml+xml")
         c.setRequestProperty("X-Microsoft-OutputFormat", RenderPlan.FORMAT)
         try {
-            c.outputStream.use { it.write(RenderPlan.ssml(voice, word).toByteArray(Charsets.UTF_8)) }
-            val code = try { c.responseCode } catch (e: IOException) { throw Transient("network: ${e.javaClass.simpleName}", null) }
+            val code = try {
+                c.outputStream.use { it.write(RenderPlan.ssml(voice, word).toByteArray(Charsets.UTF_8)) }
+                c.responseCode
+            } catch (e: UnknownHostException) {
+                throw Fatal("cannot reach $region.tts.speech.microsoft.com: check the region and the connection")
+            } catch (e: IOException) {
+                throw Transient("network: ${e.javaClass.simpleName}", null)
+            }
             when {
                 code == HttpURLConnection.HTTP_OK -> {
-                    val data = c.inputStream.use { it.readBytes() }
+                    val data = try { c.inputStream.use { it.readBytes() } } catch (e: IOException) {
+                        throw Transient("network: ${e.javaClass.simpleName}", null)
+                    }
                     RenderPlan.validateClip(data)?.let { throw Transient("bad clip for '$word' ($voice): $it", null) }
                     return data
                 }
-                code == 429 || code >= 500 -> throw Transient(describe(code), c.getHeaderField("Retry-After"))
+                code == 429 || code >= 500 -> {
+                    val ra = c.getHeaderField("Retry-After")
+                    val secs = ra?.trim()?.toLongOrNull()
+                    if (secs != null && secs > MAX_RETRY_AFTER_S) {
+                        throw Fatal("${describe(code)}; Azure asks to wait $secs s (quota exhausted?). Try again later")
+                    }
+                    throw Transient(describe(code), ra)
+                }
+                code == 401 || code == 403 || code == 404 -> throw Fatal(describe(code))
                 else -> throw IOException(describe(code))
             }
         } finally {
@@ -81,8 +103,12 @@ class AzureTts(private val region: String, private val key: String) {
 
     private class Transient(message: String, val retryAfter: String?) : IOException(message)
 
+    /** A problem the next word will not fix; the renderer stops on it. */
+    class Fatal(message: String) : IOException(message)
+
     companion object {
         const val ATTEMPTS = 3
+        const val MAX_RETRY_AFTER_S = 120L
 
         /** Plain-language meaning of the Azure status codes a learner may hit. */
         fun describe(code: Int): String = when (code) {

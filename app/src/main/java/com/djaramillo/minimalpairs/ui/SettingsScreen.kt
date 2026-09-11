@@ -97,7 +97,7 @@ fun SettingsScreen(
             FolderSection(ui, onChoose = { picker.launch(Unit) }, onForget = onForgetFolder, onRepublish = onRepublish)
             PlanSection(ui)
             OverrideSection(ui, onOverride)
-            PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded)
+            PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded, locked = render.isRunning)
             AzureSection(ui, render, onSaveAzure, onTestAzure, onForgetAzure, onRender, onCancelRender)
             SectionCard(stringResource(R.string.settings_versions)) {
                 Text(stringResource(R.string.settings_app_version, ui.appVersion))
@@ -254,6 +254,8 @@ private fun PackSection(
     onImport: (android.net.Uri) -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    /** True while the on-phone renderer writes the same directory. */
+    locked: Boolean = false,
 ) {
     // The system file picker; a clips.zip copied to the phone (Downloads, Drive) installs like a download.
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -305,13 +307,14 @@ private fun PackSection(
             if (download.isRunning) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_cancel)) }
             } else {
-                Button(onClick = onDownload, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_download)) }
+                Button(onClick = onDownload, enabled = !locked, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_download)) }
                 OutlinedButton(
                     onClick = { importPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                    enabled = !locked,
                     modifier = Modifier.height(48.dp),
                 ) { Text(stringResource(R.string.settings_pack_import)) }
                 if (ui.pack.downloaded != null) {
-                    TextButton(onClick = onDelete, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_delete)) }
+                    TextButton(onClick = onDelete, enabled = !locked, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_delete)) }
                 }
             }
         }
@@ -351,6 +354,7 @@ private fun AzureSection(
     var showKey by remember { mutableStateOf(false) }
     SectionCard(stringResource(R.string.settings_azure)) {
         Text(stringResource(R.string.settings_azure_intro), style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.settings_azure_privacy), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = region,
@@ -384,7 +388,10 @@ private fun AzureSection(
                 m == "azure:bad-key" -> stringResource(R.string.settings_azure_msg_bad_key)
                 m == "azure:no-key" -> stringResource(R.string.settings_azure_msg_no_key)
                 m == "azure:testing" -> stringResource(R.string.settings_azure_msg_testing)
-                m.startsWith("azure:ok:") -> stringResource(R.string.settings_azure_msg_ok, m.removePrefix("azure:ok:").toIntOrNull() ?: 0)
+                m.startsWith("azure:ok:") -> {
+                    val parts = m.removePrefix("azure:ok:").split(":")
+                    stringResource(R.string.settings_azure_msg_ok, parts.getOrNull(0)?.toIntOrNull() ?: 0, parts.getOrNull(1)?.toIntOrNull() ?: 0)
+                }
                 m.startsWith("azure:missing:") -> stringResource(R.string.settings_azure_msg_missing, m.removePrefix("azure:missing:"))
                 else -> m
             }
@@ -412,6 +419,10 @@ private fun AzureSection(
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_cancel)) }
             }
+            PackRenderer.State.Cancelling -> {
+                Text(stringResource(R.string.settings_azure_cancelling))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
             is PackRenderer.State.Done -> {
                 val tail = if (render.complete) stringResource(R.string.settings_azure_render_done_complete)
                 else stringResource(R.string.settings_azure_render_done_partial, render.failures)
@@ -436,7 +447,7 @@ private fun AzureSection(
 
 @Composable
 private fun RenderButton(ui: SettingsUi, onRender: () -> Unit) {
-    Button(onClick = onRender, enabled = ui.azureKeySet, modifier = Modifier.height(48.dp)) {
+    Button(onClick = onRender, enabled = ui.azureKeySet && !ui.packBusy, modifier = Modifier.height(48.dp)) {
         Text(stringResource(R.string.settings_azure_render))
     }
 }

@@ -11,7 +11,9 @@ import com.djaramillo.minimalpairs.domain.AppJson
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.storage.DataFolder
 import com.djaramillo.minimalpairs.storage.Prefs
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 
 /**
@@ -26,6 +28,8 @@ class AppContainer private constructor(context: Context) {
     val pack = ClipPack(app)
     val downloader = ClipDownloader(app, pack)
     val renderer = PackRenderer(pack)
+    /** Outlives any screen: long jobs (rendering the pack) run here, not in a ViewModel. */
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val player = Player(app)
 
     val appVersion: String by lazy {

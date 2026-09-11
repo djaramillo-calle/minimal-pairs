@@ -13,6 +13,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
@@ -38,38 +40,53 @@ class PackRenderer(private val pack: ClipPack) {
             val clipsDone: Int, val clipsTotal: Int,
             val currentWord: String, val failures: Int,
         ) : State()
+        /** Cancel requested; in-flight requests finish (at most a few seconds, a network timeout at worst). */
+        data object Cancelling : State()
         data class Done(val words: Int, val clips: Int, val failures: Int, val complete: Boolean) : State()
         data class Failed(val message: String) : State()
 
-        val isRunning: Boolean get() = this is Running
+        val isRunning: Boolean get() = this is Running || this is Cancelling
     }
 
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state
     private var job: Job? = null
 
+    /**
+     * [scope] should outlive the screen (the application scope): the run
+     * carries on while the learner leaves Settings or presses Back on Home,
+     * and the resumable design covers the process being killed.
+     */
     fun start(scope: CoroutineScope, catalog: Catalog, region: String, key: String) {
         if (job?.isActive == true) return
         job = scope.launch(Dispatchers.IO) {
+            val voices = RenderPlan.voicesFor(catalog)
             try {
-                run(catalog, AzureTts(region, key))
+                run(catalog, voices, AzureTts(region, key))
             } catch (e: CancellationException) {
-                // Leave what was rendered; the index written so far stays valid.
-                try { writeIndex(catalog, RenderPlan.voicesFor(catalog)) } catch (_: IOException) {}
                 _state.value = State.Idle
                 throw e
             } catch (e: Exception) {
                 _state.value = State.Failed(e.message ?: e.javaClass.simpleName)
+            } finally {
+                // Every exit path (done, failed, cancelled) leaves index.json current with what is on disk.
+                withContext(NonCancellable) {
+                    try { writeIndex(catalog, voices); pack.reload() } catch (_: Exception) {}
+                }
             }
         }
     }
 
-    fun cancel() { job?.cancel() }
+    fun cancel() {
+        if (job?.isActive == true) {
+            if (_state.value is State.Running) _state.value = State.Cancelling
+            job?.cancel()
+        }
+    }
 
     fun reset() { if (job?.isActive != true) _state.value = State.Idle }
 
-    private suspend fun run(catalog: Catalog, tts: AzureTts) {
-        val voices = RenderPlan.voicesFor(catalog)
+    private suspend fun run(catalog: Catalog, voices: List<String>, tts: AzureTts) {
         val words = RenderPlan.renderOrder(catalog)
         if (words.isEmpty() || voices.isEmpty()) throw IOException("nothing to render")
         val dir = pack.downloadedDir
@@ -81,8 +98,10 @@ class PackRenderer(private val pack: ClipPack) {
         val gate = Semaphore(PARALLEL)
         _state.value = State.Running(0, words.size, 0, clipsTotal, words.first(), 0)
         var sinceIndex = 0
+        var consecutiveFailures = 0
         for (word in words) {
             currentCoroutineContext().ensureActive()
+            _state.value = State.Running(wordsDone, words.size, clipsDone, clipsTotal, word, failures)
             val missing = voices.filter { v -> !clipFile(dir, v, word).let { it.isFile && it.length() > 0 } }
             clipsDone += voices.size - missing.size
             if (missing.isNotEmpty()) {
@@ -96,20 +115,22 @@ class PackRenderer(private val pack: ClipPack) {
                                     true
                                 } catch (e: CancellationException) {
                                     throw e
+                                } catch (e: AzureTts.Fatal) {
+                                    throw e // key, region or quota: stop the run
                                 } catch (e: IOException) {
-                                    // A key or region problem stops the run; anything else skips the clip.
-                                    if (e.message?.startsWith("Azure rejected") == true ||
-                                        e.message?.startsWith("Azure refused") == true ||
-                                        e.message?.startsWith("Azure endpoint") == true
-                                    ) throw e
-                                    false
+                                    false // this clip failed after retries; the next run fills it in
                                 }
                             }
                         }
                     }.awaitAll()
                 }
-                clipsDone += results.count { it }
-                failures += results.count { !it }
+                val ok = results.count { it }
+                clipsDone += ok
+                failures += results.size - ok
+                consecutiveFailures = if (ok == results.size) 0 else consecutiveFailures + (results.size - ok)
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    throw IOException("$consecutiveFailures clips in a row could not be rendered; check the connection and try again")
+                }
             }
             wordsDone++
             _state.value = State.Running(wordsDone, words.size, clipsDone, clipsTotal, word, failures)
@@ -153,5 +174,7 @@ class PackRenderer(private val pack: ClipPack) {
         /** Concurrent requests; Azure allows far more, the phone's radio is the limit. */
         const val PARALLEL = 4
         const val INDEX_EVERY_WORDS = 25
+        /** A lossy network or a dead key must not walk all 11,000 clips one timeout at a time. */
+        const val MAX_CONSECUTIVE_FAILURES = 20
     }
 }

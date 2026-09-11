@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same exclusion for API 26–30 (fullBackupContent). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="minimal-pairs.xml" />
+</full-backup-content>
