@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Platform theme with no action bar; Compose Material 3 draws everything else.
+         values-night/ swaps in the dark parent so the window follows the system
+         dark setting without any extra dependency. -->
+    <style name="Theme.MinimalPairs" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

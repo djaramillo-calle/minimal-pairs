@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Minimal Pairs</string>
+
+    <!-- Home -->
+    <string name="home_start">Start today\'s drill</string>
+    <string name="home_loading">Loading…</string>
+    <string name="home_streak">Streak</string>
+    <string name="home_streak_days">%1$d days</string>
+    <string name="home_sessions">Sessions</string>
+    <string name="home_coach_note">Coach note</string>
+    <string name="home_no_plan">No coach plan yet: using defaults</string>
+    <string name="home_plan_override">Manual override is on</string>
+    <string name="home_last_untrained">Last untrained % per contrast</string>
+    <string name="home_no_history">No sessions yet</string>
+    <string name="home_folder_not_chosen">No data folder chosen. Results stay on this phone until you choose Documents/MinimalPairs.</string>
+    <string name="home_folder_lost">Access to the data folder was lost. Choose it again in Settings.</string>
+    <string name="home_folder_unwritable">The data folder cannot be written. Check it in Settings.</string>
+    <string name="home_pack_missing">No clips found. Download the clip pack to start.</string>
+    <string name="home_pack_incomplete">Clip pack incomplete: %1$d of %2$d words available. Only fully covered contrasts are drilled.</string>
+    <string name="home_download">Download clip pack</string>
+    <string name="home_open_settings">Settings</string>
+    <string name="home_nothing_to_drill">Nothing to drill: %1$s</string>
+    <string name="home_plan_problem">plan.json problem: %1$s</string>
+    <string name="home_error">Startup problem: %1$s</string>
+    <string name="home_settings_cd">Settings</string>
+    <string name="home_download_progress">Downloading… %1$s</string>
+
+    <!-- Trial -->
+    <string name="trial_progress">%1$d / %2$d</string>
+    <string name="trial_play_cd">Play the word again</string>
+    <string name="trial_preparing">Preparing…</string>
+    <string name="trial_correct">Correct</string>
+    <string name="trial_wrong">Not quite</string>
+    <string name="trial_next">Next</string>
+    <string name="trial_finish">Finish</string>
+    <string name="trial_tap_to_hear">Tap a word to hear it</string>
+    <string name="trial_error">Could not play this clip: %1$s</string>
+    <string name="trial_skip">Skip</string>
+    <string name="trial_quit_title">Stop this session?</string>
+    <string name="trial_quit_text">The session will be discarded and nothing is written.</string>
+    <string name="trial_quit_confirm">Stop</string>
+    <string name="trial_quit_cancel">Keep going</string>
+    <string name="trial_replays">Replays: %1$d</string>
+
+    <!-- Summary -->
+    <string name="summary_title">Session done</string>
+    <string name="summary_overall">Overall</string>
+    <string name="summary_untrained">Untrained words</string>
+    <string name="summary_mean_rt">Mean reaction</string>
+    <string name="summary_ms">%1$d ms</string>
+    <string name="summary_per_contrast">Per contrast</string>
+    <string name="summary_trials">%1$d trials</string>
+    <string name="summary_untrained_trials">%1$d untrained</string>
+    <string name="summary_no_untrained">—</string>
+    <string name="summary_file">File</string>
+    <string name="summary_written_folder">written to the folder</string>
+    <string name="summary_already_there">already in the folder</string>
+    <string name="summary_mirrored_only">kept on this phone only (folder unavailable); it will be published at the next launch</string>
+    <string name="summary_write_failed">could not be written to the folder; it will be retried at the next launch</string>
+    <string name="summary_not_mirrored">could not be saved on this phone</string>
+    <string name="summary_shortfall">Untrained shortfall: %1$d (ask the coach to widen the band)</string>
+    <string name="summary_home">Home</string>
+    <string name="summary_again">Again</string>
+    <string name="summary_pct">%1$d %%</string>
+    <string name="summary_correct_of">%1$d of %2$d</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back_cd">Back</string>
+    <string name="settings_folder">Data folder</string>
+    <string name="settings_folder_not_chosen">Not chosen</string>
+    <string name="settings_folder_choose">Choose</string>
+    <string name="settings_folder_change">Change</string>
+    <string name="settings_folder_forget">Forget</string>
+    <string name="settings_folder_status_ok">OK</string>
+    <string name="settings_folder_status_lost">Permission lost — choose the folder again</string>
+    <string name="settings_folder_status_unwritable">Cannot write to this folder</string>
+    <string name="settings_folder_hint">Pick Documents; the app creates Documents/MinimalPairs with plan.json, state.json and sessions/.</string>
+    <string name="settings_republish">Re-publish mirrored sessions</string>
+    <string name="settings_republished">Published %1$d session file(s)</string>
+    <string name="settings_republish_unavailable">Folder unavailable; nothing published</string>
+
+    <string name="settings_plan">Coach plan</string>
+    <string name="settings_plan_source">Plan source: %1$s</string>
+    <string name="settings_plan_absent">No plan.json in the folder; catalog defaults apply.</string>
+    <string name="settings_plan_written">Written: %1$s by %2$s</string>
+    <string name="settings_plan_note">Note: %1$s</string>
+    <string name="settings_plan_trials">Trials per session: %1$d</string>
+    <string name="settings_plan_ratio">Untrained ratio: %1$s</string>
+    <string name="settings_plan_band">Bands: %1$s</string>
+    <string name="settings_plan_feedback">Feedback: %1$s</string>
+    <string name="settings_plan_voices">Voices: %1$d</string>
+    <string name="settings_plan_weights">Weights</string>
+
+    <string name="settings_override">Manual override</string>
+    <string name="settings_override_hint">While on, sessions run on your own weights and are recorded as plan_source \"override\".</string>
+    <string name="settings_override_trials">Trials per session: %1$d</string>
+    <string name="settings_override_contrasts">Contrasts</string>
+    <string name="settings_override_not_trainable">not trainable</string>
+
+    <string name="settings_pack">Clip pack</string>
+    <string name="settings_pack_bundled">Bundled: %1$s</string>
+    <string name="settings_pack_downloaded">Downloaded: %1$s</string>
+    <string name="settings_pack_none">none</string>
+    <string name="settings_pack_desc">%1$d words × %2$d voices%3$s</string>
+    <string name="settings_pack_complete_flag">, complete</string>
+    <string name="settings_pack_partial_flag">, partial</string>
+    <string name="settings_pack_coverage">Available: %1$d of %2$d catalog words in every voice</string>
+    <string name="settings_pack_complete">Complete</string>
+    <string name="settings_pack_incomplete">Incomplete</string>
+    <string name="settings_pack_download">Download</string>
+    <string name="settings_pack_cancel">Cancel</string>
+    <string name="settings_pack_delete">Delete downloaded</string>
+    <string name="settings_pack_size">%1$s on disk</string>
+    <string name="settings_pack_downloading">Downloading %1$s</string>
+    <string name="settings_pack_unpacking">Unpacking… %1$d files</string>
+    <string name="settings_pack_verifying">Verifying…</string>
+    <string name="settings_pack_done">Downloaded %1$d files (%2$s)</string>
+    <string name="settings_pack_failed">Download failed: %1$s</string>
+    <string name="settings_pack_source">Source: %1$s</string>
+
+    <string name="settings_versions">Versions</string>
+    <string name="settings_app_version">App %1$s</string>
+    <string name="settings_catalog_version">Catalog %1$s</string>
+</resources>
