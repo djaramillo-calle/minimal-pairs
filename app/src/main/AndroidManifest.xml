@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only used for the optional clip-pack download from GitHub Releases. -->
+    <!-- Clip-pack download from GitHub Releases, rendering with the learner's own Azure key,
+         and the Say-it assessment calls (docs/DESIGN.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The Say-it block records the learner's words (docs/DESIGN.md "Say it"); requested at
+         runtime when the block first starts, and the block is skipped when denied. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- RECORD_AUDIO would otherwise imply a required microphone and keep the app off devices
+         that have none; the Say-it block is skipped gracefully there (docs/DESIGN.md "Say it"). -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:allowBackup="false"

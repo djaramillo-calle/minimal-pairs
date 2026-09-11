@@ -174,6 +174,21 @@ private fun PlanSection(ui: SettingsUi) {
         Text(stringResource(R.string.settings_plan_band, plan.bands.joinToString(", ")))
         Text(stringResource(R.string.settings_plan_feedback, plan.feedback.key))
         Text(stringResource(R.string.settings_plan_voices, plan.voices.size))
+        // Say it, the level ladder and the consistency target (docs/CONTRACT.md levers table), read-only.
+        Text(
+            if (plan.productionOn) stringResource(R.string.settings_plan_production_pairs, plan.productionPairs)
+            else stringResource(R.string.settings_plan_production_off),
+        )
+        Text(stringResource(R.string.settings_plan_production_threshold, plan.productionThreshold))
+        Text(stringResource(R.string.settings_plan_max_level, plan.maxLevel))
+        Text(
+            stringResource(
+                R.string.settings_plan_levels,
+                if (plan.levels.isEmpty()) stringResource(R.string.settings_plan_levels_none)
+                else plan.levels.entries.joinToString(", ") { "${it.key} ${it.value}" },
+            ),
+        )
+        Text(stringResource(R.string.settings_plan_weekly_target, plan.weeklyMinutesTarget))
         Spacer(Modifier.height(6.dp))
         Text(stringResource(R.string.settings_plan_weights), style = MaterialTheme.typography.titleMedium)
         ui.contrasts.forEach { c ->

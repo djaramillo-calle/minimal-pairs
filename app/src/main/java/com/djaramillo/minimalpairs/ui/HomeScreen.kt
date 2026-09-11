@@ -29,6 +29,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.djaramillo.minimalpairs.R
@@ -86,6 +88,27 @@ fun HomeScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Stat(stringResource(R.string.home_streak), stringResource(R.string.home_streak_days, ui.streakDays))
                 Stat(stringResource(R.string.home_sessions), ui.sessionsCompleted.toString())
+                Stat(
+                    stringResource(R.string.home_week_minutes),
+                    if (ui.weeklyTarget > 0) stringResource(R.string.home_week_minutes_value, ui.weekMinutes, ui.weeklyTarget)
+                    else stringResource(R.string.home_week_minutes_no_target, ui.weekMinutes),
+                )
+            }
+            // Consistency (docs/ADAPTATION.md): this Monday–Sunday week against the coach's weekly target.
+            if (ui.weeklyTarget > 0) {
+                LinearProgressIndicator(
+                    progress = { (ui.weekMinutes.toFloat() / ui.weeklyTarget).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (ui.longestStreak > 0) {
+                Text(
+                    stringResource(R.string.home_longest_streak, ui.longestStreak),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
             }
 
             // Coach note / plan source.
@@ -135,20 +158,30 @@ fun HomeScreen(
                 Warning(stringResource(R.string.home_error, ui.lastError), null, {})
             }
 
-            // Last untrained % per contrast.
-            SectionCard(stringResource(R.string.home_last_untrained)) {
+            // Per contrast: level, trend of the untrained result, last untrained %.
+            SectionCard(stringResource(R.string.home_contrasts)) {
                 if (ui.rows.all { it.trials == 0 }) {
                     Text(stringResource(R.string.home_no_history), style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    ui.rows.forEach { r ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(r.label, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (r.trials == 0) "—" else pctText(r.lastUntrainedPct),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (r.trials == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
+                    Spacer(Modifier.height(4.dp))
+                }
+                ui.rows.forEach { r ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(r.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text(
+                            stringResource(R.string.home_level, r.level),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        TrendArrow(r.trend)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            if (r.trials == 0) "—" else pctText(r.lastUntrainedPct),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (r.trials == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.width(56.dp),
+                            textAlign = TextAlign.End,
+                        )
                     }
                 }
             }
@@ -164,6 +197,24 @@ fun downloadLabel(s: ClipDownloader.State): String = when (s) {
     is ClipDownloader.State.Unpacking -> stringResource(R.string.settings_pack_unpacking, s.files)
     ClipDownloader.State.Verifying -> stringResource(R.string.settings_pack_verifying)
     else -> ""
+}
+
+/** Last untrained result against the previous one: ↑ ↓ →, or a blank of the same width. */
+@Composable
+private fun TrendArrow(trend: Trend?) {
+    val (text, color, cd) = when (trend) {
+        Trend.UP -> Triple("↑", successColor(), stringResource(R.string.home_trend_up_cd))
+        Trend.DOWN -> Triple("↓", MaterialTheme.colorScheme.error, stringResource(R.string.home_trend_down_cd))
+        Trend.FLAT -> Triple("→", MaterialTheme.colorScheme.onSurfaceVariant, stringResource(R.string.home_trend_flat_cd))
+        null -> Triple(" ", MaterialTheme.colorScheme.onSurfaceVariant, null)
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        color = color,
+        modifier = Modifier.width(20.dp).let { m -> if (cd != null) m.semantics { contentDescription = cd } else m },
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable

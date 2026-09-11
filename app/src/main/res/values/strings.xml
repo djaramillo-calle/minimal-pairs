@@ -25,6 +25,51 @@
     <string name="home_error">Startup problem: %1$s</string>
     <string name="home_settings_cd">Settings</string>
     <string name="home_download_progress">Downloading… %1$s</string>
+    <string name="home_week_minutes">This week</string>
+    <string name="home_week_minutes_value">%1$d / %2$d min</string>
+    <string name="home_week_minutes_no_target">%1$d min</string>
+    <string name="home_longest_streak">Longest streak: %1$d days</string>
+    <string name="home_level">L%1$d</string>
+    <string name="home_contrasts">Contrasts: level · trend · last untrained %</string>
+    <string name="home_trend_up_cd">Improving</string>
+    <string name="home_trend_down_cd">Slipping</string>
+    <string name="home_trend_flat_cd">Steady</string>
+
+    <!-- Say it -->
+    <string name="sayit_title">Say it</string>
+    <string name="sayit_progress">Pair %1$d of %2$d</string>
+    <string name="sayit_points_so_far">%1$d / %2$d points</string>
+    <string name="sayit_instructions">Say each word on its own. Tap the button, speak, and it stops by itself (or tap again).</string>
+    <string name="sayit_preparing">Preparing Say it…</string>
+    <string name="sayit_hear">Hear</string>
+    <string name="sayit_record">Record</string>
+    <string name="sayit_recorded">Done</string>
+    <string name="sayit_tap_to_record">Tap to record</string>
+    <string name="sayit_tap_to_record_again">Tap to record again</string>
+    <string name="sayit_recording">Recording… speak now</string>
+    <string name="sayit_listening">Recording… listening</string>
+    <string name="sayit_scoring">Scoring…</string>
+    <string name="sayit_no_speech">No speech heard. Tap to try once more.</string>
+    <string name="sayit_mic_error">Microphone problem: %1$s</string>
+    <string name="sayit_play_recording">Play my recording</string>
+    <string name="sayit_heard_as">Heard as “%1$s”</string>
+    <string name="sayit_heard_unclear">Unclear</string>
+    <string name="sayit_accuracy">accuracy %1$d</string>
+    <string name="sayit_hint_good">Point earned.</string>
+    <string name="sayit_hint_below">Right word, but accuracy %1$d is below the %2$d needed.</string>
+    <string name="sayit_hint_heard_other">The %1$s was heard as %2$s.</string>
+    <string name="sayit_hint_missing">The %1$s was not heard.</string>
+    <string name="sayit_hint_extra">An extra %1$s was heard.</string>
+    <string name="sayit_hint_unclear">The signals disagreed; try again next time.</string>
+    <string name="sayit_hint_no_speech">Nothing was heard in two recordings.</string>
+    <string name="sayit_pair_points">%1$d / 2 points</string>
+    <string name="sayit_error">Could not play: %1$s</string>
+    <string name="sayit_finish">Finish</string>
+    <string name="sayit_skip_rest">Skip the rest</string>
+    <string name="sayit_end_title">End Say it?</string>
+    <string name="sayit_end_text">The pairs already scored are kept and the session is saved.</string>
+    <string name="sayit_end_confirm">End</string>
+    <string name="sayit_end_cancel">Keep going</string>
 
     <!-- Trial -->
     <string name="trial_progress">%1$d / %2$d</string>
@@ -65,6 +110,17 @@
     <string name="summary_again">Again</string>
     <string name="summary_pct">%1$d %%</string>
     <string name="summary_correct_of">%1$d of %2$d</string>
+    <string name="summary_say_it">Say it</string>
+    <string name="summary_production_points">%1$d / %2$d points</string>
+    <string name="summary_production_pairs">%1$d pairs</string>
+    <string name="summary_production_row">%1$d / %2$d</string>
+    <string name="summary_levels">Levels</string>
+    <string name="summary_level_change">%1$s moved to level %2$d (from %3$d)</string>
+    <string name="summary_sayit_denied">Say it was skipped: microphone permission denied. Allow it in the system settings to record next time.</string>
+    <string name="summary_sayit_no_network">Say it was skipped: no connection to Azure Speech.</string>
+    <string name="summary_sayit_nothing">Say it was skipped: no pair to say for this plan.</string>
+    <string name="summary_sayit_skipped">Say it ended early; the scored pairs were kept.</string>
+    <string name="summary_sayit_azure">Say it ended early: %1$s</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
@@ -92,6 +148,13 @@
     <string name="settings_plan_band">Bands: %1$s</string>
     <string name="settings_plan_feedback">Feedback: %1$s</string>
     <string name="settings_plan_voices">Voices: %1$d</string>
+    <string name="settings_plan_production_pairs">Say it pairs: %1$d</string>
+    <string name="settings_plan_production_off">Say it pairs: 0 (off)</string>
+    <string name="settings_plan_production_threshold">Say it threshold: %1$d</string>
+    <string name="settings_plan_max_level">Max level: %1$d</string>
+    <string name="settings_plan_levels">Pinned levels: %1$s</string>
+    <string name="settings_plan_levels_none">none</string>
+    <string name="settings_plan_weekly_target">Weekly target: %1$d min</string>
     <string name="settings_plan_weights">Weights</string>
 
     <string name="settings_override">Manual override</string>
