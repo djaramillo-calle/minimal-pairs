@@ -33,11 +33,17 @@ data class MergedIndex(
     val bundled: ClipIndex?,
     val downloaded: ClipIndex?,
 ) {
-    /** Union of the voices of both sources, bundled order first. */
-    val voices: List<String> = LinkedHashSet<String>().apply {
-        bundled?.voices?.let { addAll(it) }
-        downloaded?.voices?.let { addAll(it) }
-    }.toList()
+    /**
+     * The voices the app draws from. A complete downloaded pack defines them
+     * (it may carry fewer voices than the bundled subset, e.g. a three-voice
+     * pack imported from a file; the extra bundled voices are then unused).
+     * Otherwise the union of both sources, bundled order first.
+     */
+    val voices: List<String> = downloaded?.takeIf { it.complete && it.voices.isNotEmpty() }?.voices
+        ?: LinkedHashSet<String>().apply {
+            bundled?.voices?.let { addAll(it) }
+            downloaded?.voices?.let { addAll(it) }
+        }.toList()
 
     /**
      * Words that have a clip in every merged voice, from either source. This is

@@ -130,3 +130,34 @@ class ReleaseAssetsTest {
         org.junit.Assert.assertNull(ReleaseAssets.pickClipsZip("""[{"assets":[{"name":"clips.zip","browser_download_url":"http://insecure/clips.zip"}]}]"""))
     }
 }
+
+class MergedVoicesTest {
+    private fun idx(voices: List<String>, words: List<String>, complete: Boolean) =
+        ClipIndex(voices = voices, words = words, complete = complete)
+
+    @org.junit.Test
+    fun aCompleteDownloadWithFewerVoicesDefinesTheVoicesAndMakesAllItsWordsAvailable() {
+        val bundled = idx(listOf("a", "b", "c", "d", "e", "f"), listOf("ship", "sheep"), complete = false)
+        val downloaded = idx(listOf("a", "b", "c"), listOf("ship", "sheep", "cat", "cut"), complete = true)
+        val m = MergedIndex(bundled, downloaded)
+        org.junit.Assert.assertEquals(listOf("a", "b", "c"), m.voices)
+        org.junit.Assert.assertEquals(setOf("ship", "sheep", "cat", "cut"), m.words)
+    }
+
+    @org.junit.Test
+    fun placeholderBundleDoesNotShrinkACompleteSixVoiceDownload() {
+        val bundled = idx(listOf("a", "b"), listOf("ship"), complete = false)
+        val downloaded = idx(listOf("a", "b", "c", "d", "e", "f"), listOf("ship", "cat"), complete = true)
+        val m = MergedIndex(bundled, downloaded)
+        org.junit.Assert.assertEquals(6, m.voices.size)
+        org.junit.Assert.assertEquals(setOf("ship", "cat"), m.words)
+    }
+
+    @org.junit.Test
+    fun withoutADownloadTheBundledVoicesStand() {
+        val bundled = idx(listOf("a", "b", "c", "d", "e", "f"), listOf("ship"), complete = false)
+        val m = MergedIndex(bundled, null)
+        org.junit.Assert.assertEquals(6, m.voices.size)
+        org.junit.Assert.assertEquals(setOf("ship"), m.words)
+    }
+}
