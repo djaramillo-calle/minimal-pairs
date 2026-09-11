@@ -6,6 +6,7 @@ import android.os.Build
 import com.djaramillo.minimalpairs.audio.Player
 import com.djaramillo.minimalpairs.clips.ClipDownloader
 import com.djaramillo.minimalpairs.clips.ClipPack
+import com.djaramillo.minimalpairs.clips.PackRenderer
 import com.djaramillo.minimalpairs.domain.AppJson
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.storage.DataFolder
@@ -24,6 +25,7 @@ class AppContainer private constructor(context: Context) {
     val folder = DataFolder(app, prefs)
     val pack = ClipPack(app)
     val downloader = ClipDownloader(app, pack)
+    val renderer = PackRenderer(pack)
     val player = Player(app)
 
     val appVersion: String by lazy {

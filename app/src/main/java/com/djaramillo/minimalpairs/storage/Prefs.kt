@@ -34,6 +34,23 @@ class Prefs(context: Context) {
         sp.edit().remove(KEY_TREE_URI).remove(KEY_ROOT_URI).remove(KEY_SUBFOLDER).apply()
     }
 
+    /**
+     * The learner's own Azure Speech credentials (Settings → Azure Speech).
+     * App-private storage, never backed up (`allowBackup=false`), never
+     * written to the data folder, never logged.
+     */
+    var azureRegion: String?
+        get() = sp.getString(KEY_AZURE_REGION, null)
+        set(value) = sp.edit().putString(KEY_AZURE_REGION, value).apply()
+
+    var azureKey: String?
+        get() = sp.getString(KEY_AZURE_KEY, null)
+        set(value) = sp.edit().putString(KEY_AZURE_KEY, value).apply()
+
+    fun clearAzure() {
+        sp.edit().remove(KEY_AZURE_REGION).remove(KEY_AZURE_KEY).apply()
+    }
+
     var override: Override
         get() {
             val enabled = sp.getBoolean(KEY_OVERRIDE_ENABLED, false)
@@ -62,6 +79,8 @@ class Prefs(context: Context) {
         const val KEY_OVERRIDE_ENABLED = "override_enabled"
         const val KEY_OVERRIDE_TRIALS = "override_trials"
         const val KEY_OVERRIDE_WEIGHTS = "override_weights"
+        const val KEY_AZURE_REGION = "azure_region"
+        const val KEY_AZURE_KEY = "azure_key"
         val weightsSerializer = MapSerializer(String.serializer(), Double.serializer())
     }
 }

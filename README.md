@@ -76,10 +76,32 @@ app, so nothing is lost. The release notes say which key signed each build.
   `clips.zip` from the newest release that has one. This needs a network
   connection once; after that the app is offline. The app only keeps a
   downloaded pack that is complete and covers its own catalog.
-- No release has a pack yet (the repository has no Azure secrets)? Copy a
+- No release has a pack yet (the repository has no Azure secrets)? Two ways:
+  Settings → "Azure Speech" lets you paste your own Azure Speech region and
+  key and render the whole pack on the phone (see below); or copy a
   `clips.zip` to the phone by any route (Chrome download, Drive) and use
-  Settings → "Import clips.zip…"; it goes through the same checks as a
-  download and lands in the same place.
+  Settings → "Import clips.zip…". Both go through the same checks as a
+  download and land in the same place.
+
+### Your own Azure key (no GitHub secrets needed)
+
+Anyone can use the app with their own Azure Speech resource:
+
+1. In the Azure portal create a *Speech* resource (the free F0 tier covers
+   the whole pack many times over: about 70,000 characters for 1941 words ×
+   6 voices) and open its "Keys and Endpoint" page.
+2. In the app, Settings → Azure Speech: enter the region (`uksouth`,
+   `westeurope`, …) and one of the two keys, Save, then Test. Test asks Azure
+   for its voice list and confirms the six British voices exist.
+3. Tap "Render clip pack on this phone". About 11,600 short requests, 20 to
+   40 minutes on Wi-Fi with the app open (the screen stays on). You can
+   cancel and continue later: finished words are kept, the heaviest contrasts
+   are rendered first and become drillable as soon as their words are in.
+
+The key is stored only in the app's private preferences on the phone (the
+app opts out of Android backup), is sent only to
+`<region>.tts.speech.microsoft.com`, and never appears in the data folder,
+in session files, or in logs. "Forget key" removes it.
 
 ### Sync with the coach (Autosync for Google Drive)
 

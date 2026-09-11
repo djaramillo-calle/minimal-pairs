@@ -40,6 +40,11 @@ import androidx.compose.ui.unit.dp
 import com.djaramillo.minimalpairs.R
 import com.djaramillo.minimalpairs.clips.ClipDownloader
 import com.djaramillo.minimalpairs.clips.ClipIndex
+import com.djaramillo.minimalpairs.clips.PackRenderer
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.runtime.mutableStateOf
 import com.djaramillo.minimalpairs.domain.model.Override
 import com.djaramillo.minimalpairs.domain.model.PlanDefaults
 import com.djaramillo.minimalpairs.storage.DataFolder
@@ -58,6 +63,12 @@ fun SettingsScreen(
     onImportPack: (android.net.Uri) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteDownloaded: () -> Unit,
+    render: PackRenderer.State = PackRenderer.State.Idle,
+    onSaveAzure: (String, String) -> Unit = { _, _ -> },
+    onTestAzure: () -> Unit = {},
+    onForgetAzure: () -> Unit = {},
+    onRender: () -> Unit = {},
+    onCancelRender: () -> Unit = {},
     onRepublish: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -87,6 +98,7 @@ fun SettingsScreen(
             PlanSection(ui)
             OverrideSection(ui, onOverride)
             PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded)
+            AzureSection(ui, render, onSaveAzure, onTestAzure, onForgetAzure, onRender, onCancelRender)
             SectionCard(stringResource(R.string.settings_versions)) {
                 Text(stringResource(R.string.settings_app_version, ui.appVersion))
                 Text(stringResource(R.string.settings_catalog_version, ui.catalogVersion))
@@ -321,4 +333,110 @@ private fun packDesc(index: ClipIndex?): String {
     if (index == null) return stringResource(R.string.settings_pack_none)
     val flag = stringResource(if (index.complete) R.string.settings_pack_complete_flag else R.string.settings_pack_partial_flag)
     return stringResource(R.string.settings_pack_desc, index.words.size, index.voices.size, flag)
+}
+
+
+@Composable
+private fun AzureSection(
+    ui: SettingsUi,
+    render: PackRenderer.State,
+    onSave: (String, String) -> Unit,
+    onTest: () -> Unit,
+    onForget: () -> Unit,
+    onRender: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    var region by remember(ui.azureRegion) { mutableStateOf(ui.azureRegion) }
+    var key by remember { mutableStateOf("") }
+    var showKey by remember { mutableStateOf(false) }
+    SectionCard(stringResource(R.string.settings_azure)) {
+        Text(stringResource(R.string.settings_azure_intro), style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = region,
+            onValueChange = { region = it },
+            label = { Text(stringResource(R.string.settings_azure_region)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = key,
+            onValueChange = { key = it },
+            label = { Text(stringResource(if (ui.azureKeySet) R.string.settings_azure_key_stored else R.string.settings_azure_key)) },
+            singleLine = true,
+            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "hide" else "show") } },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onSave(region, key); key = "" }, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_save)) }
+            OutlinedButton(onClick = onTest, enabled = ui.azureKeySet, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_test)) }
+            if (ui.azureKeySet) {
+                TextButton(onClick = onForget, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_forget)) }
+            }
+        }
+        ui.azureMessage?.let { m ->
+            val text = when {
+                m == "azure:saved" -> stringResource(R.string.settings_azure_msg_saved)
+                m == "azure:bad-region" -> stringResource(R.string.settings_azure_msg_bad_region)
+                m == "azure:bad-key" -> stringResource(R.string.settings_azure_msg_bad_key)
+                m == "azure:no-key" -> stringResource(R.string.settings_azure_msg_no_key)
+                m == "azure:testing" -> stringResource(R.string.settings_azure_msg_testing)
+                m.startsWith("azure:ok:") -> stringResource(R.string.settings_azure_msg_ok, m.removePrefix("azure:ok:").toIntOrNull() ?: 0)
+                m.startsWith("azure:missing:") -> stringResource(R.string.settings_azure_msg_missing, m.removePrefix("azure:missing:"))
+                else -> m
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = when (ui.azureOk) {
+                    true -> MaterialTheme.colorScheme.primary
+                    false -> MaterialTheme.colorScheme.error
+                    null -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        when (render) {
+            is PackRenderer.State.Running -> {
+                Text(stringResource(R.string.settings_azure_rendering, render.wordsDone, render.wordsTotal, render.clipsDone, render.currentWord))
+                LinearProgressIndicator(
+                    progress = { if (render.clipsTotal > 0) render.clipsDone.toFloat() / render.clipsTotal else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (render.failures > 0) {
+                    Text(stringResource(R.string.settings_azure_render_failures, render.failures), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_cancel)) }
+            }
+            is PackRenderer.State.Done -> {
+                val tail = if (render.complete) stringResource(R.string.settings_azure_render_done_complete)
+                else stringResource(R.string.settings_azure_render_done_partial, render.failures)
+                Text(stringResource(R.string.settings_azure_render_done, render.words, render.clips, tail), color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                RenderButton(ui, onRender)
+            }
+            is PackRenderer.State.Failed -> {
+                Text(stringResource(R.string.settings_azure_render_failed, render.message), color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(8.dp))
+                RenderButton(ui, onRender)
+            }
+            PackRenderer.State.Idle -> RenderButton(ui, onRender)
+        }
+        Text(
+            stringResource(R.string.settings_azure_render_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun RenderButton(ui: SettingsUi, onRender: () -> Unit) {
+    Button(onClick = onRender, enabled = ui.azureKeySet, modifier = Modifier.height(48.dp)) {
+        Text(stringResource(R.string.settings_azure_render))
+    }
 }

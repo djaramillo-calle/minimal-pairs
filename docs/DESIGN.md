@@ -17,9 +17,15 @@ Poco F7 Pro on Android 15, sideloads APKs.
   (`ignoreUnknownKeys = true`, `isLenient = true`, `explicitNulls = false`),
   androidx.documentfile 1.0.1, activity-compose 1.9.3, lifecycle 2.8.7. JUnit 4
   for unit tests. Gradle wrapper 8.14.3 committed (`gradle-wrapper.jar` included).
-- No backend, no accounts, no analytics, no permissions beyond `INTERNET`
-  (optional clip-pack download from this repo's GitHub Releases on first run).
-  Offline after that. No third-party runtime libraries beyond AndroidX/Kotlin.
+- No backend, no accounts, no analytics, no permissions beyond `INTERNET`.
+  The network is used for two optional things only: the clip-pack download
+  from this repo's GitHub Releases, and rendering the pack on the phone with
+  the learner's **own Azure Speech key** (Settings → Azure Speech: region +
+  key stored in app-private preferences, never backed up, never written to
+  the data folder; the same SSML, format and `index.json` rules as
+  `scripts/render-clips.py`, resumable, word-major in contrast-weight order
+  into `filesDir/clips/`). Offline otherwise. No third-party runtime
+  libraries beyond AndroidX/Kotlin.
 - Data folder: `Documents/MinimalPairs/` chosen via the Storage Access
   Framework (`ACTION_OPEN_DOCUMENT_TREE`, `takePersistableUriPermission` read +
   write, `EXTRA_INITIAL_URI` pointing at Documents), URI remembered in

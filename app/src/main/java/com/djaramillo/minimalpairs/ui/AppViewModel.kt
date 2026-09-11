@@ -121,6 +121,11 @@ data class SettingsUi(
     val appVersion: String = "",
     val catalogVersion: String = "",
     val message: String? = null,
+    /** Azure Speech (Settings → Azure Speech): region as stored, whether a key is stored, last test result. */
+    val azureRegion: String = "",
+    val azureKeySet: Boolean = false,
+    val azureMessage: String? = null,
+    val azureOk: Boolean? = null,
 )
 
 /**
@@ -136,6 +141,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val player: Player = container.player
     val downloader: ClipDownloader = container.downloader
     val downloadState: StateFlow<ClipDownloader.State> = downloader.state
+    private val renderer = container.renderer
+    val renderState: StateFlow<com.djaramillo.minimalpairs.clips.PackRenderer.State> = renderer.state
 
     private val _screen = MutableStateFlow(Screen.HOME)
     val screen: StateFlow<Screen> = _screen
@@ -175,6 +182,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             downloader.state.collect { s ->
                 if (s is ClipDownloader.State.Done) { pack.reload(); recompute() }
+            }
+        }
+        viewModelScope.launch {
+            // Reload the pack when a render finishes or is cancelled (it wrote index.json either way).
+            var wasRunning = false
+            renderer.state.collect { s ->
+                val running = s.isRunning
+                if (wasRunning && !running) { pack.reload(); recompute() }
+                wasRunning = running
             }
         }
     }
@@ -276,6 +292,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             packWordsTotal = catalogWords.size,
             appVersion = container.appVersion,
             catalogVersion = cat.version,
+            azureRegion = prefs.azureRegion ?: "",
+            azureKeySet = !prefs.azureKey.isNullOrEmpty(),
         )
         viewModelScope.launch {
             val bytes = pack.downloadedBytes()
@@ -340,6 +358,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelDownload() = downloader.cancel()
+
+    // ---- Azure Speech: the learner's own key, rendering on the phone ------
+
+    /** Store region + key (validated for shape only). An empty key keeps the stored one. */
+    fun saveAzure(region: String, key: String) {
+        val r = com.djaramillo.minimalpairs.clips.RenderPlan.normalizeRegion(region)
+        if (r == null) { azureMessage("azure:bad-region", false); return }
+        val k = if (key.isBlank()) prefs.azureKey else com.djaramillo.minimalpairs.clips.RenderPlan.normalizeKey(key)
+        if (k == null) { azureMessage("azure:bad-key", false); return }
+        prefs.azureRegion = r
+        prefs.azureKey = k
+        azureMessage("azure:saved", true)
+        recompute()
+    }
+
+    fun forgetAzure() {
+        prefs.clearAzure()
+        azureMessage(null, null)
+        recompute()
+    }
+
+    /** Ask Azure for its voice list with the stored key; reports the en-GB voice count or the error. */
+    fun testAzure() {
+        val r = prefs.azureRegion; val k = prefs.azureKey
+        if (r.isNullOrEmpty() || k.isNullOrEmpty()) { azureMessage("azure:no-key", false); return }
+        azureMessage("azure:testing", null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val voices = com.djaramillo.minimalpairs.clips.AzureTts(r, k).listBritishVoices()
+                val wanted = com.djaramillo.minimalpairs.clips.RenderPlan.voicesFor(catalog ?: container.catalog())
+                val missing = wanted.filter { it !in voices }
+                azureMessage(if (missing.isEmpty()) "azure:ok:${voices.size}" else "azure:missing:${missing.joinToString(", ")}", missing.isEmpty())
+            } catch (e: Exception) {
+                azureMessage(e.message ?: e.javaClass.simpleName, false)
+            }
+        }
+    }
+
+    fun startRender() {
+        val r = prefs.azureRegion; val k = prefs.azureKey
+        val cat = catalog
+        if (r.isNullOrEmpty() || k.isNullOrEmpty() || cat == null) { azureMessage("azure:no-key", false); return }
+        renderer.reset()
+        renderer.start(viewModelScope, cat, r, k)
+    }
+
+    fun cancelRender() = renderer.cancel()
+
+    private fun azureMessage(msg: String?, ok: Boolean?) {
+        _settings.value = _settings.value.copy(azureMessage = msg, azureOk = ok)
+    }
 
     fun deleteDownloaded() {
         viewModelScope.launch {

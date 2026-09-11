@@ -46,6 +46,14 @@ class MainActivity : ComponentActivity() {
 private fun App(vm: AppViewModel = viewModel()) {
     val screen by vm.screen.collectAsStateWithLifecycle()
     val download by vm.downloadState.collectAsStateWithLifecycle()
+    val render by vm.renderState.collectAsStateWithLifecycle()
+    // Rendering the pack with the learner's key takes a while: keep the screen on meanwhile.
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.LaunchedEffect(render.isRunning) {
+        val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        if (render.isRunning) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
     // Give audio focus back while the app is in the background so other apps stop ducking.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onBackground() }
     // Coming back to the foreground: pick up a plan.json that arrived meanwhile (docs/CONTRACT.md).
@@ -94,6 +102,12 @@ private fun App(vm: AppViewModel = viewModel()) {
                 onCancelDownload = vm::cancelDownload,
                 onDeleteDownloaded = vm::deleteDownloaded,
                 onRepublish = vm::republish,
+                render = render,
+                onSaveAzure = vm::saveAzure,
+                onTestAzure = vm::testAzure,
+                onForgetAzure = vm::forgetAzure,
+                onRender = vm::startRender,
+                onCancelRender = vm::cancelRender,
             )
         }
     }
