@@ -3,6 +3,13 @@ package com.djaramillo.minimalpairs.domain
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.domain.model.ContrastState
 import com.djaramillo.minimalpairs.domain.model.ContrastSummary
+import com.djaramillo.minimalpairs.domain.model.DayTally
+import com.djaramillo.minimalpairs.domain.model.PairState
+import com.djaramillo.minimalpairs.domain.model.Practice
+import com.djaramillo.minimalpairs.domain.model.ProductionContrastSummary
+import com.djaramillo.minimalpairs.domain.model.ProductionRow
+import com.djaramillo.minimalpairs.domain.model.ProductionSummary
+import com.djaramillo.minimalpairs.domain.model.WordResult
 import com.djaramillo.minimalpairs.domain.model.LearnerState
 import com.djaramillo.minimalpairs.domain.model.Plan
 import com.djaramillo.minimalpairs.domain.model.SessionRecord
@@ -156,13 +163,13 @@ class JsonTest {
             appVersion = "0.1.0", catalogVersion = "2026-09-11.1", planSource = "coach", planWritten = "2026-09-11T18:30:00Z",
             voices = listOf("en-GB-SoniaNeural", "en-GB-RyanNeural"),
             trials = listOf(TrialRow(1, "th", "th:think-sink", "think", "sink", "sink", false, "en-GB-RyanNeural", 1210, 0, false, "high", "initial")),
-            summary = Summary(40, 31, 0.775, 20, 14, 0.7, 197, 950, 0, mapOf("th" to ContrastSummary(10, 7, 5, 3, 1010))),
+            summary = Summary(40, 31, 0.775, 20, 14, 0.7, 197, 197, 950, 0, mapOf("th" to ContrastSummary(10, 7, 5, 3, 1010))),
         )
         val text = json.encodeToString(rec)
         assertKeys(text, "version", "id", "started", "ended", "app_version", "catalog_version", "plan_source", "plan_written",
             "voices", "trials", "i", "contrast", "pair", "target", "other", "chosen", "correct", "voice", "rt_ms", "replays",
             "trained", "band", "position", "summary", "pct", "untrained_trials", "untrained_correct", "untrained_pct",
-            "duration_s", "mean_rt_ms", "untrained_shortfall", "contrasts")
+            "duration_s", "perception_duration_s", "mean_rt_ms", "untrained_shortfall", "contrasts", "levels")
         assertEquals(rec, json.decodeFromString<SessionRecord>(text))
 
         val firstRow = Json.parseToJsonElement(text).jsonObject.getValue("trials").jsonArray[0].jsonObject
@@ -187,11 +194,13 @@ class JsonTest {
             appVersion = "0.1.0", catalogVersion = "2026-09-11.1", planSource = "default", planWritten = null,
             voices = listOf("en-GB-SoniaNeural"),
             trials = listOf(TrialRow(1, "th", "th:think-sink", "think", "sink", "think", true, "en-GB-SoniaNeural", 900, 0, true, "high", "initial")),
-            summary = Summary(1, 1, 1.0, 0, 0, null, 197, 900, 1, mapOf("th" to ContrastSummary(1, 1, 0, 0, 900))),
+            summary = Summary(1, 1, 1.0, 0, 0, null, 197, 197, 900, 1, mapOf("th" to ContrastSummary(1, 1, 0, 0, 900))),
         )
         val text = AppJson.writer.encodeToString(rec)
         assertTrue(text, text.contains("\"plan_written\": null"))
         assertTrue(text, text.contains("\"untrained_pct\": null"))
+        assertTrue(text, text.contains("\"production\": null")) // both the rows and summary.production
+        assertEquals(2, Regex("\"production\": null").findAll(text).count())
         assertEquals(rec, json.decodeFromString<SessionRecord>(text))
         assertEquals(rec, AppJson.writer.decodeFromString<SessionRecord>(text))
 
@@ -203,6 +212,10 @@ class JsonTest {
         assertTrue(stText, stText.contains("\"last_untrained_pct\": null"))
         assertTrue(stText, stText.contains("\"last_pct\": null"))
         assertTrue(stText, stText.contains("\"mean_rt_ms\": null"))
+        assertTrue(stText, stText.contains("\"level_changed\": null"))
+        assertTrue(stText, stText.contains("\"last_production_pct\": null"))
+        assertTrue(stText, stText.contains("\"pairs\": {"))
+        assertTrue(stText, stText.contains("\"practice\": {"))
         assertEquals(st, json.decodeFromString<LearnerState>(stText))
         assertTrue(stText.startsWith("{\n  \"version\": 1"))
     }
@@ -231,4 +244,121 @@ class JsonTest {
         assertEquals("2026-09-11T07:02:13Z", TimeUtil.formatIso(free))
     }
 
+    @Test
+    fun sayItLevelsAndPracticeKeysRoundTrip() {
+        val st = LearnerState(
+            updated = "2026-09-11T07:05:30Z", sessionsCompleted = 12, streakDays = 3, lastSession = "2026-09-11T07:02:11Z",
+            contrasts = mapOf("th" to ContrastState(
+                trials = 120, correct = 98, untrainedTrials = 60, untrainedCorrect = 45, lastPct = 0.8, lastUntrainedPct = 0.75,
+                recentUntrainedPct = listOf(0.6, 0.7, 0.75), meanRtMs = 910, wordsTrained = 34, wordsTotal = 96,
+                level = 2, levelChanged = "2026-09-09T07:05:00Z", productionPairs = 24, productionPoints = 31,
+                lastProductionPct = 0.75, recentProductionPct = listOf(0.5, 0.625, 0.75),
+            )),
+            pairs = mapOf("th:think-sink" to PairState(attempts = 3, lastPoints = 2, best = 2, fails = 1, last = "2026-09-11T07:04:50Z")),
+            practice = Practice(longestStreak = 9, totalSeconds = 5400, days = mapOf("2026-09-11" to DayTally(1, 290, 40, 8))),
+        )
+        val text = AppJson.writer.encodeToString(st)
+        assertKeys(text, "level", "level_changed", "production_pairs", "production_points", "last_production_pct",
+            "recent_production_pct", "pairs", "attempts", "last_points", "best", "fails", "practice", "longest_streak",
+            "total_seconds", "days", "sessions", "seconds", "perception_trials")
+        assertEquals(st, json.decodeFromString<LearnerState>(text))
+        val obj = Json.parseToJsonElement(text).jsonObject
+        val th = obj.getValue("contrasts").jsonObject.getValue("th").jsonObject
+        assertEquals("2", th.getValue("level").toString())
+        assertEquals("[0.5,0.625,0.75]", th.getValue("recent_production_pct").toString())
+        assertEquals("24", th.getValue("production_pairs").toString())
+        assertEquals("0.75", th.getValue("last_production_pct").toString())
+        val day = obj.getValue("practice").jsonObject.getValue("days").jsonObject.getValue("2026-09-11").jsonObject
+        assertEquals(listOf("sessions", "seconds", "perception_trials", "production_pairs"), day.keys.toList())
+
+        // the contract sample (pairs + practice) parses, and {} still does
+        val sample = """{"version": 1, "contrasts": {"th": {"trials": 1, "level": 3, "level_changed": null,
+          "production_pairs": 2, "production_points": 3, "last_production_pct": null, "recent_production_pct": []}},
+          "pairs": {"th:think-sink": {"attempts": 3, "last_points": 2, "best": 2, "fails": 1, "last": "2026-09-11T07:04:50Z"}},
+          "practice": {"longest_streak": 9, "total_seconds": 5400,
+            "days": {"2026-09-11": {"sessions": 1, "seconds": 290, "perception_trials": 40, "production_pairs": 8}}}}"""
+        val s2 = json.decodeFromString<LearnerState>(sample)
+        assertEquals(3, s2.contrasts.getValue("th").level)
+        assertNull(s2.contrasts.getValue("th").levelChanged)
+        assertEquals(2, s2.pairs.getValue("th:think-sink").lastPoints)
+        assertEquals(9, s2.practice.longestStreak)
+        assertEquals(40, s2.practice.days.getValue("2026-09-11").perceptionTrials)
+        val fresh = json.decodeFromString<LearnerState>("{}")
+        assertEquals(emptyMap<String, PairState>(), fresh.pairs)
+        assertEquals(Practice(), fresh.practice)
+        assertEquals(1, ContrastState().level)
+    }
+
+    @Test
+    fun productionRowsAndSummaryKeys() {
+        val rec = SessionRecord(
+            id = "20260911T070211Z", started = "2026-09-11T07:02:11Z", ended = "2026-09-11T07:05:28Z",
+            appVersion = "0.1.0", catalogVersion = "2026-09-11.1", planSource = "coach", planWritten = "2026-09-11T18:30:00Z",
+            voices = listOf("en-GB-SoniaNeural"),
+            trials = listOf(TrialRow(1, "th", "th:think-sink", "think", "sink", "sink", false, "en-GB-RyanNeural", 1210, 0, false, "high", "initial")),
+            levels = mapOf("th" to 2, "s/z" to 1),
+            production = listOf(ProductionRow(
+                i = 1, contrast = "th", pair = "th:think-sink", a = "think", b = "sink", points = 1, level = 2,
+                words = mapOf(
+                    "think" to WordResult("sink", 81, 96, 24, 99, "phoneme:other word:other recognition:other", "sink", 1380, 1),
+                    "sink" to WordResult("sink", 98, 82, null, null, "phoneme:none word:intended recognition:intended", null, 1100, 2),
+                ),
+            )),
+            summary = Summary(
+                trials = 40, correct = 31, pct = 0.775, untrainedTrials = 20, untrainedCorrect = 14, untrainedPct = 0.7,
+                durationS = 292, perceptionDurationS = 197, meanRtMs = 950, untrainedShortfall = 0,
+                contrasts = mapOf("th" to ContrastSummary(10, 7, 5, 3, 1010)),
+                production = ProductionSummary(8, 11, 16, 0.6875, 95, mapOf("th" to ProductionContrastSummary(3, 4))),
+            ),
+        )
+        val text = AppJson.writer.encodeToString(rec)
+        assertKeys(text, "levels", "production", "heard", "acc", "acc_other", "ph", "ph_other", "votes", "recognised", "ms",
+            "attempts", "points", "level", "words", "perception_duration_s", "max_points")
+        assertEquals(rec, json.decodeFromString<SessionRecord>(text))
+        val obj = Json.parseToJsonElement(text).jsonObject
+        assertEquals(listOf("version", "id", "started", "ended", "app_version", "catalog_version", "plan_source", "plan_written",
+            "voices", "trials", "levels", "production", "summary"), obj.keys.toList())
+        val row = obj.getValue("production").jsonArray[0].jsonObject
+        assertEquals(listOf("i", "contrast", "pair", "a", "b", "points", "level", "words"), row.keys.toList())
+        val think = row.getValue("words").jsonObject.getValue("think").jsonObject
+        assertEquals(listOf("heard", "acc", "acc_other", "ph", "ph_other", "votes", "recognised", "ms", "attempts"), think.keys.toList())
+        assertEquals("96", think.getValue("acc_other").toString())
+        assertEquals("99", think.getValue("ph_other").toString())
+        val sink = row.getValue("words").jsonObject.getValue("sink").jsonObject
+        assertEquals("null", sink.getValue("ph").toString())
+        assertEquals("null", sink.getValue("recognised").toString())
+        val summary = obj.getValue("summary").jsonObject
+        assertEquals("197", summary.getValue("perception_duration_s").toString())
+        assertEquals("292", summary.getValue("duration_s").toString())
+        val prod = summary.getValue("production").jsonObject
+        assertEquals(listOf("pairs", "points", "max_points", "pct", "duration_s", "contrasts"), prod.keys.toList())
+        assertEquals("16", prod.getValue("max_points").toString())
+
+        // Say it off: both production keys are written as null, nothing is omitted
+        val off = rec.copy(production = null, summary = rec.summary.copy(production = null))
+        val offText = AppJson.writer.encodeToString(off)
+        assertTrue(offText, offText.contains("\"production\": null"))
+        assertEquals(2, Regex("\"production\": null").findAll(offText).count())
+        assertEquals(off, json.decodeFromString<SessionRecord>(offText))
+        // the reader accepts a record without the new keys (older files)
+        val old = json.decodeFromString<SessionRecord>("""{"version":1,"id":"x","started":"s","ended":"e","app_version":"a","catalog_version":"c",
+          "plan_source":"default","summary":{"trials":0,"correct":0,"pct":0.0,"untrained_trials":0,"untrained_correct":0,"duration_s":1,"perception_duration_s":1,"mean_rt_ms":0}}""")
+        assertNull(old.production)
+        assertEquals(emptyMap<String, Int>(), old.levels)
+    }
+
+    @Test
+    fun planParsesTheNewLevers() {
+        val p = json.decodeFromString<Plan>("""{"version": 1, "production_pairs": 10, "production_threshold": 70, "max_level": 3,
+          "levels": {"th": 2, "s/z": 4}, "weekly_minutes_target": 30}""")
+        assertEquals(10, p.productionPairs)
+        assertEquals(70, p.productionThreshold)
+        assertEquals(3, p.maxLevel)
+        assertEquals(mapOf("th" to 2, "s/z" to 4), p.levels)
+        assertEquals(30, p.weeklyMinutesTarget)
+        val out = json.encodeToString(Plan(productionPairs = 8, productionThreshold = 60, maxLevel = 4, levels = mapOf("th" to 1), weeklyMinutesTarget = 20))
+        assertKeys(out, "production_pairs", "production_threshold", "max_level", "levels", "weekly_minutes_target")
+        val empty = json.decodeFromString<Plan>("{}")
+        assertNull(empty.productionPairs); assertNull(empty.levels); assertNull(empty.weeklyMinutesTarget)
+    }
 }

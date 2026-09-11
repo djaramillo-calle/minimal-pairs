@@ -25,7 +25,7 @@ data class PlannedTrial(
     val targetOnLeft: Boolean,
     /** This trial was meant to be an untrained probe (running-ratio rule). */
     val probe: Boolean,
-    /** The probe found no untrained word left; the least-exposed word was used instead. */
+    /** The probe found no untrained word left anywhere in the plan's band ceiling; the least-exposed word was used instead. */
     val shortfall: Boolean,
 ) {
     val leftWord: String get() = if (targetOnLeft) target else other
@@ -33,7 +33,9 @@ data class PlannedTrial(
 }
 
 /**
- * Draws the trials of one session exactly as docs/ADAPTATION.md describes.
+ * Draws the trials of one session exactly as docs/ADAPTATION.md describes,
+ * each contrast from the bands of its level-ladder rung within the plan's
+ * band ceiling, with `m_level` in the effective weight.
  *
  * Deterministic for a seeded [Random]: every random choice goes through it and
  * all iteration is over ordered lists.
@@ -67,6 +69,15 @@ class SessionScheduler(
     /** Contrasts that can be drawn, in catalog order, each with its eligible pairs. */
     val schedulable: List<Contrast>
 
+    /**
+     * The level-ladder snapshot at session start for every contrast the plan
+     * weights above 0 (pins and `max_level` applied): the record's `levels`.
+     */
+    val levels: Map<String, Int>
+
+    /** Contrast id → the bands it draws from this session ([LevelPolicy.poolBands]), for the schedulable contrasts. */
+    val poolBands: Map<String, List<String>>
+
     private val eligiblePairs: Map<String, List<Pair>>
 
     private val planned = ArrayList<PlannedTrial>()
@@ -90,10 +101,15 @@ class SessionScheduler(
     init {
         val skippedOut = LinkedHashMap<String, String>()
         val eligible = LinkedHashMap<String, List<Pair>>()
-        val bands = plan.bands.toSet()
+        val levelsOut = LinkedHashMap<String, Int>()
+        val bandsOut = LinkedHashMap<String, List<String>>()
         for (c in catalog.contrasts) {
             val w = plan.weights[c.id] ?: 0.0
             if (w <= 0.0) { skippedOut[c.id] = "weight 0"; continue }
+            val level = LevelPolicy.currentLevel(c.id, state, plan)
+            levelsOut[c.id] = level
+            val poolBands = LevelPolicy.poolBands(level, plan.bands, c)
+            val bands = poolBands.toSet()
             if (!c.trainable || c.trainablePairs.isEmpty()) { skippedOut[c.id] = "not trainable"; continue }
             val missing = c.trainableWords().filter { it !in availableWords }
             if (missing.isNotEmpty()) {
@@ -104,8 +120,11 @@ class SessionScheduler(
             val pairs = c.trainablePairs.filter { it.a.band in bands && it.b.band in bands }
             if (pairs.isEmpty()) { skippedOut[c.id] = "no pair in bands ${plan.bands}"; continue }
             eligible[c.id] = pairs
+            bandsOut[c.id] = poolBands
         }
         skipped = skippedOut
+        levels = levelsOut
+        poolBands = bandsOut
         eligiblePairs = eligible
         schedulable = catalog.contrasts.filter { it.id in eligible }
         check(schedulable.isNotEmpty()) {
@@ -118,14 +137,14 @@ class SessionScheduler(
     // ---- weights -------------------------------------------------------
 
     /** `m_history(c)` from state.json (docs/ADAPTATION.md "Across sessions"). */
-    fun historyModifier(contrastId: String): Double {
-        val recent = state.contrasts[contrastId]?.recentUntrainedPct ?: return 1.0
-        if (recent.isEmpty()) return 1.0
-        val last = recent.last()
-        if (last < 0.8) return 1.25
-        if (recent.size >= 2 && last > 0.95 && recent[recent.size - 2] > 0.95) return 0.75
-        return 1.0
-    }
+    fun historyModifier(contrastId: String): Double = historyModifier(state, contrastId)
+
+    /** `m_level(c)`: 0.5 at level 4, else 1 (contrasts not in the session count as level 1). */
+    fun levelModifier(contrastId: String): Double = LevelPolicy.levelModifier(levels[contrastId] ?: LevelPolicy.MIN_LEVEL)
+
+    /** The bands contrast [contrastId] draws from this session: its rung ∩ `plan.bands`, widened when the rung has no pair. */
+    fun bandsFor(contrastId: String): List<String> =
+        poolBands[contrastId] ?: LevelPolicy.bandsFor(levels[contrastId] ?: LevelPolicy.MIN_LEVEL, plan.bands)
 
     /** `m_session(c)` from the answers recorded so far in this session. */
     fun sessionModifier(contrastId: String): Double {
@@ -141,8 +160,9 @@ class SessionScheduler(
     fun modifier(contrastId: String): Double =
         (historyModifier(contrastId) * sessionModifier(contrastId)).coerceIn(MODIFIER_MIN, MODIFIER_MAX)
 
-    /** `w_eff(c) = w_plan(c) × modifier(c)`. */
-    fun effectiveWeight(contrastId: String): Double = (plan.weights[contrastId] ?: 0.0) * modifier(contrastId)
+    /** `w_eff(c) = w_plan(c) × m_history × m_session × m_level` (the first two clamped together). */
+    fun effectiveWeight(contrastId: String): Double =
+        (plan.weights[contrastId] ?: 0.0) * modifier(contrastId) * levelModifier(contrastId)
 
     /**
      * Draw probabilities for the next trial over [schedulable] (after the
@@ -207,6 +227,28 @@ class SessionScheduler(
 
     private fun <T> pick(items: List<T>): T = items[random.nextInt(items.size)]
 
+    /** A pair that can still serve an honest probe: one of its words is untrained and unheard this session. */
+    private fun holdsFresh(pair: Pair): Boolean = isFreshUntrained(pair.a.word) || isFreshUntrained(pair.b.word)
+
+    /**
+     * The pairs a probe may draw from for [contrast], widening the way
+     * [LevelPolicy.poolBands] widens the pair pool: the rung's bands ∩ ceiling
+     * while they still hold an untrained word, else the first higher rung's
+     * bands ∩ ceiling that do (docs/ADAPTATION.md "The level ladder"). Empty
+     * only when the whole ceiling is exhausted for this contrast — that, and
+     * nothing less, is `summary.untrained_shortfall`. The rung itself, its
+     * pace and its promotion rules are untouched.
+     */
+    private fun probePairs(contrast: Contrast): List<Pair> {
+        val start = (levels[contrast.id] ?: LevelPolicy.MIN_LEVEL).coerceIn(LevelPolicy.MIN_LEVEL, LevelPolicy.MAX_LEVEL)
+        for (rung in start..LevelPolicy.MAX_LEVEL) {
+            val bands = LevelPolicy.bandsFor(rung, plan.bands).toSet()
+            val fresh = contrast.trainablePairs.filter { it.a.band in bands && it.b.band in bands && holdsFresh(it) }
+            if (fresh.isNotEmpty()) return fresh
+        }
+        return emptyList()
+    }
+
     /**
      * Draw trial number [trialIndex] (1-based, used as the row's `i`). The
      * running untrained-ratio rule and the run-length rule use the trials
@@ -227,9 +269,10 @@ class SessionScheduler(
         var target: String
         var shortfall = false
         if (probe) {
-            val freshUnused = unused.filter { isFreshUntrained(it.a.word) || isFreshUntrained(it.b.word) }
-            val freshAny = if (freshUnused.isNotEmpty()) freshUnused
-            else pairs.filter { isFreshUntrained(it.a.word) || isFreshUntrained(it.b.word) }
+            val freshUnused = unused.filter { holdsFresh(it) }
+            val freshRung = if (freshUnused.isNotEmpty()) freshUnused else pairs.filter { holdsFresh(it) }
+            // The rung first; when it is exhausted the probe widens to the higher rungs' bands.
+            val freshAny = if (freshRung.isNotEmpty()) freshRung else probePairs(contrast)
             if (freshAny.isNotEmpty()) {
                 pair = pick(freshAny)
                 target = pick(listOf(pair.a.word, pair.b.word).filter { isFreshUntrained(it) })
@@ -271,7 +314,9 @@ class SessionScheduler(
             shortfall = shortfall,
         )
         planned.add(trial)
-        used.add(pair.id)
+        // Only the rung's own pairs take part in the "every pair once" cycle; a probe
+        // drawn from a higher rung cannot repeat anyway (its word is no longer fresh).
+        if (pairs.any { it.id == pair.id }) used.add(pair.id)
         sessionTargetCount[target] = (sessionTargetCount[target] ?: 0) + 1
         return trial
     }
@@ -302,4 +347,14 @@ class SessionScheduler(
         answered.add(row)
         return row
     }
+}
+
+/** `m_history(c)` from `recent_untrained_pct` (docs/ADAPTATION.md "Across sessions"). */
+fun historyModifier(state: LearnerState, contrastId: String): Double {
+    val recent = state.contrasts[contrastId]?.recentUntrainedPct ?: return 1.0
+    if (recent.isEmpty()) return 1.0
+    val last = recent.last()
+    if (last < 0.8) return 1.25
+    if (recent.size >= 2 && last > 0.95 && recent[recent.size - 2] > 0.95) return 0.75
+    return 1.0
 }

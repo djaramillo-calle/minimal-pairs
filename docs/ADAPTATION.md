@@ -47,9 +47,14 @@ w_eff(c) = w_plan(c) × m_history(c) × m_session(c)
 
 Untrained probe: the scheduler keeps a running count and makes the next trial an
 untrained-word trial whenever `untrained_so_far < untrained_ratio × trials_so_far`
-(so the session ends near the target share, not front-loaded). If the chosen
-contrast and band have no untrained word left, the least-exposed word is used
-and `summary.untrained_shortfall` is incremented.
+(so the session ends near the target share, not front-loaded). The probe widens
+the way the pair pool does: when the contrast's own rung holds no untrained word
+left, the probe is drawn from the first higher rung's bands within the ceiling
+that does, so the honest probe never dries up while the ceiling still holds an
+untrained word for that contrast. The rung itself, its pace and its promotion
+rules are untouched — only that one trial reaches further down the frequency
+list. Only when the whole ceiling is exhausted for the contrast is the
+least-exposed word used instead and `summary.untrained_shortfall` incremented.
 
 Pair and word: within the contrast, eligible pairs are those with both words in
 an allowed band. Pairs already used in this session are avoided until all have
@@ -90,16 +95,31 @@ that slips gets narrower again:
 | 3 | high, mid, low | normal | the whole lexicon |
 | 4 | high, mid, low | × 0.5 (`m_level`) | maintenance: still probed, fewer trials |
 
+A contrast whose rung has no trainable pair in the bands the ceiling leaves
+(j/y and schwa have no high/high pair; a ceiling of `["mid"]` leaves level 1
+nothing) draws from the first higher rung's bands that hold a pair, until its
+own rung catches up. The rung itself, its pace and its promotion rules do not
+change, and nothing the coach weighted above 0 is left out for want of words.
+
 Moves happen after a session, one step at a time, never for a pinned
 contrast, never above `plan.max_level`:
 
-- **Promotion** when the last three sessions that probed the contrast all
-  had untrained accuracy ≥ 90 % and, if Say it is on, the last two production
-  results were ≥ 75 %.
-- **Demotion** when the last two untrained results were both < 60 %
-  (regression guard), or when the last two production results were both
-  < 40 % while perception stays fine (then the pool narrows so the mouth
-  catches up on common words).
+A level moves only on evidence **this session produced**. A session that added
+no untrained result for a contrast does not re-judge the unchanged list (it
+would otherwise move the contrast again on the same evidence), and neither does
+a session that added no production result:
+
+- **Promotion** when this session probed the contrast with untrained words and
+  the last three sessions that probed it all had untrained accuracy ≥ 90 %. If
+  Say it is on *and* the contrast already has two production results, the last
+  two must also be ≥ 75 %; a contrast with no production history is promoted on
+  perception alone, so a Say-it block that never runs (no key, no microphone,
+  no network) can never freeze the ladder.
+- **Demotion** when this session probed the contrast and the last two untrained
+  results were both < 60 % (regression guard), or when this session produced
+  the contrast and the last two production results were both < 40 % while
+  perception stays fine (then the pool narrows so the mouth catches up on
+  common words).
 
 New contrasts start at level 1, or at `plan.levels[id]` when pinned.
 
@@ -131,11 +151,12 @@ as a consistency problem, not a skill problem.
 
 Word exposure: `state.json.words` records every target exposure. Words are
 "trained" once exposed; the untrained probe therefore naturally moves through
-the catalog. When a contrast runs out of untrained words in the allowed bands,
-the shortfall is reported and the coach widens the band (the coach's
-`plan-from-ledger.py` does so automatically once the recent shortfall reaches
-10 % of trials; with the default plan this happens after roughly 15 sessions).
-The app does **not** widen it by itself.
+the catalog, rung by rung and then, for the probe alone, beyond the rung within
+the ceiling. `summary.untrained_shortfall` is reported only when a contrast has
+no untrained word left anywhere in `plan.band` — the coach then widens the
+band or lowers `untrained_ratio` (the coach's `plan-from-ledger.py` widens
+automatically once the recent shortfall reaches 10 % of trials). The app does
+**not** widen the ceiling by itself.
 
 
 ## What the app never does
