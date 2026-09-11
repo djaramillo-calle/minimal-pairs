@@ -51,13 +51,21 @@ Poco F7 Pro on Android 15, sideloads APKs.
   `filesDir/clips/`. A committed placeholder pack (`data/placeholder-clips/`,
   ~12 words × 2 voices) is used whenever no rendered pack exists so the build
   never fails; its `index.json` says `"complete": false`.
-- Audio latency budget: **sound within 150 ms of the tap**. At session start
-  all clips of the session are decoded to 16-bit PCM in memory
-  (`MediaExtractor` + `MediaCodec`), leading silence below −50 dBFS is trimmed,
-  and playback uses a pre-created `AudioTrack` (static mode per clip, or one
-  stream-mode track with the PCM written from a dedicated thread). Reaction time
-  starts at the moment the track starts playing. Decoding ~40 clips of <1 s at
-  24 kHz mono takes well under a second and ~2 MB.
+- Audio latency budget: **sound within 150 ms of the tap**. Clips are decoded
+  to 16-bit PCM in memory (`MediaExtractor` + `MediaCodec`) one trial ahead:
+  the scheduler draws lazily (the next draw depends on the answer, see
+  `docs/ADAPTATION.md`), so trial 1's target and foil are decoded during the
+  Home → Trial transition behind a short spinner, and trial `i+1` is drawn and
+  decoded the moment trial `i` is answered, during the feedback pause. Leading
+  silence below −50 dBFS (RMS over 5 ms, so a stray click does not count) is
+  trimmed, and playback uses a pre-created `AudioTrack` (static mode per clip,
+  written once at decode time), so every tap — auto-play, replay, hear-word —
+  is a `play()` on a filled track. Reaction time starts at the moment the track
+  starts playing. Decoding a <1 s clip at 24 kHz mono takes ~10–30 ms; the
+  session holds at most 8 tracks. Playback takes transient audio focus with
+  ducking so music in another app is lowered, not talked over. A clip that
+  cannot be decoded never strands the session: the trial offers Retry / Skip
+  (a replacement draw with the same index; nothing is recorded for it).
 - Session logic: `plan.trials_per_session` trials (default 40, ≈3 minutes),
   contrasts weighted per `docs/ADAPTATION.md`, random voice per trial, half the
   trials on untrained words. Domain logic (scheduler, state update, record
@@ -78,15 +86,20 @@ Poco F7 Pro on Android 15, sideloads APKs.
   build the release APK on `ubuntu-latest`, sign with the keystore from secrets
   `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
   `ANDROID_KEY_PASSWORD` when present (debug key otherwise, and the release
-  notes say so), render or restore the clip pack (Azure secrets when present,
-  cache keyed by catalog version + voices; placeholder otherwise), publish a
-  GitHub Release with the APK and `clips.zip`.
+  notes say so), render or restore the clip pack (cache keyed by catalog
+  version + voices, else the previous release's `clips-<catalog>.zip` when it
+  is a complete pack for the same catalog, else Azure when the secrets are
+  present; placeholder otherwise, and then the release is not marked latest so
+  `releases/latest/download/clips.zip` keeps serving the last real pack),
+  publish a GitHub Release with the APK and `clips.zip`. The app refuses a
+  downloaded pack whose `index.json` says `complete: false`, or that was
+  rendered for another catalog and does not cover this catalog's words.
 
 ## Catalog (`data/catalog/catalog.json`)
 
 ```json
 {
-  "version": "2026-09-11.1",
+  "version": "2026-09-11.2",
   "generated": "2026-09-11T10:00:00Z",
   "sources": {"pronunciation": "Britfone 3.0.1 (MIT)", "frequency": "hermitdave/FrequencyWords en_50k 2018 (MIT)"},
   "voices": ["en-GB-SoniaNeural", "..."],
@@ -110,10 +123,12 @@ Poco F7 Pro on Android 15, sideloads APKs.
 ```
 
 - `ipa` is the Britfone transcription with spaces removed and stress marks kept
-  (`ˈ`, `ˌ`); Britfone's `ɐ` is written `ʌ` in the catalog (STRUT), `ɹ` stays
-  `ɹ`. `diff` lists the phoneme of `a` and of `b` at the differing slot
-  (`""` for an absent phoneme, e.g. `["", "h"]` for our/hour-type pairs or
-  `["", "t"]` for walk/walked).
+  (`ˈ`, `ˌ`, in Britfone's position directly before the vowel, `pɹˈaɪs`);
+  Britfone's `ɐ` is written `ʌ` in the catalog (STRUT), `ɹ` stays `ɹ`. The
+  Trial screen renders the mark at the syllable onset as standard IPA does
+  (`/ˈpɹaɪs/`, `Ipa.display`). `diff` lists the phoneme of `a` and of `b` at
+  the differing slot (`""` for an absent phoneme, e.g. `["", "h"]` for
+  our/hour-type pairs or `["", "t"]` for walk/walked).
 - A pair is **minimal** when the two phoneme sequences (stress marks stripped,
   Britfone tokens compared as tokens, so `tʃ` is one unit) differ in exactly
   one slot by substitution, or (for `-ed` and `h` only) by one insertion. Pair
@@ -122,8 +137,9 @@ Poco F7 Pro on Android 15, sideloads APKs.
   ≤ 50000, `rare` = not in the list. A pair is `trainable` only if both words
   are in the list (not `rare`), spelled with `a–z` only, have exactly one
   Britfone pronunciation (variants `(1)`, `(2)` are skipped as homographs),
-  and are not in the small exclusion list of the script (offensive words,
-  abbreviations, letter names).
+  and are not in the exclusion list of the script (offensive words,
+  abbreviations, slang, interjections, letter names, and a hand-kept list of
+  proper nouns, since neither source carries case).
 - `position`: `initial` when the differing slot is the first phoneme, `final`
   when it is the last, else `medial`.
 - Contrasts (id — phonemes — notes):
@@ -132,10 +148,13 @@ Poco F7 Pro on Android 15, sideloads APKs.
   ship whatever exists, `trainable: false` on the contrast if fewer than 6) ·
   `th` variants θ/t, θ/s, ð/d · `b/v` · `s/z` · `j/y` dʒ/j · `-ed` final t or d
   present vs absent (`walk/walked`, `play/played`; not the extra-syllable
-  `wanted`) · `h` h vs zero, initial only · `sh/ch` ʃ/tʃ · `er/or` ɜː/ɔː ·
+  `wanted`; only real inflections, so `see/seed` and nonstandard `waked`
+  are not -ed pairs; derivational forms like `skill/skilled` stay, the
+  contrast is perception of a final t/d) · `h` h vs zero, initial only · `sh/ch` ʃ/tʃ · `er/or` ɜː/ɔː ·
   `s-cluster` production-only, `trainable: false`, `pairs: []`.
   Target 30–80 trainable pairs per contrast where the lexicon allows; report
-  the real counts. Default weights (relative, from the learner's ledger):
+  the real counts, and beside them the number of distinct sound pairs
+  (homophone spellings such as sir/saw, sir/sore count once). Default weights (relative, from the learner's ledger):
   th 1.0, s/z 0.8, i/ii 0.6, b/v 0.5, cat/cut 0.4, long-back 0.3, j/y 0.3,
   -ed 0.3, h 0.2, sh/ch 0.2, er/or 0.2, schwa 0.15, s-cluster 0.
 - `pairs` sorted by the sum of ranks (commonest first). A word may appear in
@@ -144,7 +163,7 @@ Poco F7 Pro on Android 15, sideloads APKs.
 ## Clip pack `index.json`
 
 ```json
-{"version": 1, "catalog_version": "2026-09-11.1", "format": "webm/opus 24 kHz 24 kbps mono",
+{"version": 1, "catalog_version": "2026-09-11.2", "format": "webm/opus 24 kHz 24 kbps mono",
  "voices": ["en-GB-SoniaNeural", "..."], "words": ["ship", "sheep", "..."],
  "complete": true, "contrasts": ["i/ii", "..."], "files": 7800, "bytes": 37000000}
 ```

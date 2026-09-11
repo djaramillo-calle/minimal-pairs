@@ -145,7 +145,7 @@ fuck fucking fucked fucker shit shite crap cunt cock dick prick piss pissed
 ass arse arsehole asshole bitch bastard twat wank wanker slut whore nigger
 negro fag faggot spastic retard retarded tit tits bollocks bugger bloody
 damn cum pussy dyke paki coon queer spaz sod turd whores bitches fanny shat
-spunk slag wop
+spunk slag wop rape raped fart pees jew jews
 """.split())
 # single letters and letter names
 EXCLUDE |= set("abcdefghijklmnopqrstuvwxyz")
@@ -157,7 +157,19 @@ EXCLUDE |= set("""
 mr mrs ms dr st jr sr etc vs ok pm am tv uk usa eu un id cd dvd pc bbc nhs
 ie eg ltd inc co oz lb kg km cm mm ft mph gb mb kb phd ceo faq url www com
 org http hmm um uh er ah eh mm ooh ugh oi ow aw duh yo yous sic til pic pics
-mic biz sim sims mil bi vid
+mic biz sim sims mil bi vid cos wanna raf thru els tic stat stats ante
+anti mac cam cams mag mam nan yup yuck yum fella feller aye howdy
+""".split())
+# proper nouns (names, places, brands, nationalities): Britfone and en_50k
+# carry no case, so these are listed by hand from the trainable word set
+EXCLUDE |= set("""
+ali andy anna audi avon bart bern brett bruce burt carrie cassie cathy chad
+dan eddie ellen essex evans germain germaine hackney haiti hannah harley
+harlow harry hart helen hugh jacques kath kathy kirk kurt levi lorna lyn lynn
+madge marc marcus marge martha marx matt max mick morse murray nat neil ollie
+pam paul perth pete phil potts rachel rick ross russian ruth sally sam san
+saturn sean shane shaun shaw shirley sid sikh sioux sofia sutton thai tim turk
+warner yale
 """.split())
 # heteronyms whose TTS rendering is ambiguous (those with two Britfone
 # variants are skipped automatically; this list covers the rest too)
@@ -241,12 +253,19 @@ def position_of(slot, length):
     return "medial"
 
 
+# base+d forms that are not the past tense of the base (see/seed) or are
+# nonstandard in British English (waked, slayed, shined): not -ed pairs.
+ED_NOT_PAST = set("seed feed weed waked slayed shined".split())
+
+
 def ed_spelling_ok(base, longer, lexicon=None):
     """Is `longer` the regular -ed spelling of `base`?
 
     `lexicon` (a set of words) lets the -ied form be claimed by its -y base
     when both exist (carried belongs to carry, not carrie).
     """
+    if longer in ED_NOT_PAST:
+        return False
     if base.endswith("e"):
         if longer != base + "d":                    # bake/baked, die/died
             return False
@@ -455,17 +474,24 @@ def decide_version(existing_version, existing_catalog, new_catalog, today):
     return today + ".1", None
 
 
+def distinct_ipa_pairs(pairs):
+    """Number of distinct (ipa a, ipa b) sound pairs among the trainable pairs
+    (homophone spellings such as sir/saw, sir/sore share one sound pair)."""
+    return len(set((p["a"]["ipa"], p["b"]["ipa"]) for p in pairs if p["trainable"]))
+
+
 def print_table(catalog, out=sys.stdout):
     words = set()
-    print("%-10s %9s %6s  %s" % ("contrast", "trainable", "total", "trainable"), file=out)
+    print("%-10s %9s %8s %6s  %s" % ("contrast", "trainable", "distinct", "total", "trainable"), file=out)
     for c in catalog["contrasts"]:
         for p in c["pairs"]:
             if p["trainable"]:
                 words.add(p["a"]["word"])
                 words.add(p["b"]["word"])
-        print("%-10s %9d %6d  %s" % (c["id"], c["trainable_pairs"], c["total_pairs"],
-                                     "yes" if c["trainable"] else "no"), file=out)
-    print("distinct trainable words: %d" % len(words), file=out)
+        print("%-10s %9d %8d %6d  %s" % (c["id"], c["trainable_pairs"], distinct_ipa_pairs(c["pairs"]),
+                                         c["total_pairs"], "yes" if c["trainable"] else "no"), file=out)
+    print("distinct trainable words: %d  (distinct = trainable pairs with different sounds, "
+          "homophone spellings counted once)" % len(words), file=out)
 
 
 def cmd_build(repo, version_arg):
@@ -652,7 +678,7 @@ def selftest():
         "ago": "ə g ˈəʊ", "ego": "ˈiː g əʊ", "affect": "ə f ˈɛ k t",
         "effect": "ɪ f ˈɛ k t", "sofa": "s ˈəʊ f ə", "sofar": "s ˈəʊ f ɑː",
         "ahead": "ə h ˈɛ d", "arrest": "ə ɹ ˈɛ s t", "unrest": "ɐ n ɹ ˈɛ s t",
-        "seed": "s ˈiː d", "aha": "ɑː h ˈɑː", "bed": "b ˈɛ d",
+        "seed": "s ˈiː d", "aha": "ɑː h ˈɑː", "bed": "b ˈɛ d", "see": "s ˈiː",
     }
     T = {w: tokenize(p) for w, p in lex.items()}
     C = {c["id"]: c for c in CONTRASTS}
@@ -675,6 +701,11 @@ def selftest():
     check(not ed_spelling_ok("walk", "talked"), "ed spelling rejects unrelated")
     check(not ed_spelling_ok("we", "weed") and not ed_spelling_ok("he", "heed"), "e-final base takes only d")
     check(ed_spelling_ok("die", "died") and ed_spelling_ok("agree", "agreed"), "die/died, agree/agreed")
+    check(not ed_spelling_ok("see", "seed") and not ed_spelling_ok("fee", "feed")
+          and not ed_spelling_ok("wake", "waked") and not ed_spelling_ok("slay", "slayed"),
+          "seed/feed are not past forms, waked/slayed nonstandard")
+    check(ed_spelling_ok("free", "freed") and ed_spelling_ok("shine", "shined") is False, "freed ok, shined out")
+    check(pair("-ed", "see", "seed") is None, "see/seed is not an -ed pair")
     check(not ed_spelling_ok("carrie", "carried", {"carrie", "carried", "carry"}), "carried belongs to carry")
     check(ed_spelling_ok("carrie", "carried", {"carrie", "carried"}), "carrie/carried without carry")
     check(pair("h", "eat", "heat") == ("", "h", 0, 3), "eat/heat is h")
@@ -710,6 +741,20 @@ def selftest():
     check(not word_trainable("zzz", ranks, counts), "rare not trainable")
     check(not word_trainable("fuck", ranks, counts), "excluded not trainable")
     check(not word_trainable("b", ranks, counts), "letter not trainable")
+    ranks2 = {"harry": 900, "hurry": 2500, "cos": 700, "wanna": 400, "rape": 3711, "app": 1500}
+    counts2 = {w: 1 for w in ranks2}
+    check(not word_trainable("harry", ranks2, counts2) and word_trainable("hurry", ranks2, counts2),
+          "proper noun not trainable")
+    check(not word_trainable("cos", ranks2, counts2) and not word_trainable("wanna", ranks2, counts2),
+          "slang/abbreviation not trainable")
+    check(not word_trainable("rape", ranks2, counts2), "sensitive word not trainable")
+    check(word_trainable("app", ranks2, counts2), "app is ordinary vocabulary")
+    check(distinct_ipa_pairs([
+        {"a": {"ipa": "sˈɜː"}, "b": {"ipa": "sˈɔː"}, "trainable": True},
+        {"a": {"ipa": "sˈɜː"}, "b": {"ipa": "sˈɔː"}, "trainable": True},
+        {"a": {"ipa": "kˈɜːt"}, "b": {"ipa": "kˈɔːt"}, "trainable": True},
+        {"a": {"ipa": "fˈɜː"}, "b": {"ipa": "fˈɔː"}, "trainable": False},
+    ]) == 2, "distinct ipa pairs count homophones once")
 
     # end-to-end on the toy lexicon
     entries = [(w, None, T[w]) for w in sorted(lex)]

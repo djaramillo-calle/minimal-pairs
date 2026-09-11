@@ -94,4 +94,69 @@ object Ipa {
             b = Highlight(ipaB, ib?.let { tb[it].range }, db),
         )
     }
+
+    /** Britfone vowel tokens (catalog spelling, ʌ for STRUT). */
+    val VOWELS: Set<String> = setOf(
+        "ə", "ɪ", "ɛ", "æ", "i", "ɒ", "ʌ", "ɐ", "ʊ", "iː", "uː", "ɑː", "ɔː", "ɜː",
+        "eɪ", "aɪ", "ɔɪ", "əʊ", "aʊ", "ɪə", "ɛə", "ʊə",
+    )
+
+    /**
+     * Consonant clusters English allows at the start of a syllable (Britfone
+     * spelling: ɹ, g). Single consonants other than ŋ are always allowed.
+     */
+    val ONSET_CLUSTERS: Set<String> = setOf(
+        "pl", "bl", "kl", "gl", "fl", "sl",
+        "pɹ", "bɹ", "tɹ", "dɹ", "kɹ", "gɹ", "fɹ", "θɹ", "ʃɹ",
+        "tw", "dw", "kw", "gw", "θw", "sw",
+        "pj", "bj", "tj", "dj", "kj", "gj", "fj", "vj", "mj", "nj", "lj", "sj", "zj", "hj", "θj",
+        "sp", "st", "sk", "sm", "sn", "sf",
+        "spl", "spɹ", "spj", "stɹ", "stj", "skɹ", "skw", "skj", "skl",
+    )
+
+    private fun isVowel(p: String) = p in VOWELS
+
+    private fun isOnset(cluster: List<String>): Boolean =
+        cluster.size == 1 && cluster[0] != "ŋ" || cluster.joinToString("") in ONSET_CLUSTERS
+
+    /**
+     * Display form of a catalog IPA string. The catalog keeps Britfone's
+     * convention, the stress mark directly before the vowel (`pɹˈaɪs`);
+     * standard IPA puts it before the syllable (`ˈpɹaɪs`). Each mark is moved
+     * left over the longest run of preceding consonants that forms a legal
+     * English onset, never past a vowel. Returns the new string and, for
+     * every token index, the token's new phoneme range.
+     */
+    private fun displayLayout(ipa: String): Pair<String, List<IntRange>> {
+        val toks = tokens(ipa)
+        val markAt = HashMap<Int, Char>() // token index → stress mark emitted before it
+        for ((k, t) in toks.withIndex()) {
+            val s = t.stressStart ?: continue
+            var j = k
+            while (j > 0 && !isVowel(toks[j - 1].phoneme) && isOnset(toks.subList(j - 1, k).map { it.phoneme })) j--
+            markAt[j] = ipa[s]
+        }
+        val sb = StringBuilder()
+        val ranges = ArrayList<IntRange>(toks.size)
+        for ((k, t) in toks.withIndex()) {
+            markAt[k]?.let { sb.append(it) }
+            val start = sb.length
+            sb.append(t.phoneme)
+            ranges.add(start until sb.length)
+        }
+        return sb.toString() to ranges
+    }
+
+    /** [displayLayout] for a plain string. */
+    fun display(ipa: String): String = displayLayout(ipa).first
+
+    /** The same highlight in display form (stress mark at the syllable onset), range remapped. */
+    fun display(h: Highlight): Highlight {
+        val (text, ranges) = displayLayout(h.ipa)
+        val range = h.range ?: return Highlight(text, null, h.phoneme)
+        val toks = tokens(h.ipa)
+        val k = toks.indexOfFirst { it.range == range }
+        if (k < 0) return h // not a token range: leave the catalog form untouched
+        return Highlight(text, ranges[k], h.phoneme)
+    }
 }

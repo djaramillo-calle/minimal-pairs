@@ -30,15 +30,16 @@ fun bytesText(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-/** IPA with the differing phoneme in colour + bold. */
+/** IPA with the differing phoneme in colour + bold; stress marks shown at the syllable onset (/ˈʃɪp/). */
 @Composable
 fun ipaAnnotated(h: Ipa.Highlight, highlight: androidx.compose.ui.graphics.Color): AnnotatedString =
     buildAnnotatedString {
+        val d = Ipa.display(h)
         append("/")
-        append(h.before)
-        if (h.range != null) {
-            withStyle(SpanStyle(color = highlight, fontWeight = FontWeight.Bold)) { append(h.highlighted) }
-            append(h.after)
+        append(d.before)
+        if (d.range != null) {
+            withStyle(SpanStyle(color = highlight, fontWeight = FontWeight.Bold)) { append(d.highlighted) }
+            append(d.after)
         }
         append("/")
     }

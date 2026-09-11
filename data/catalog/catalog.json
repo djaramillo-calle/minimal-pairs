@@ -840,7 +840,7 @@
      ],
      "id": "th:math-matt",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -994,7 +994,7 @@
      ],
      "id": "th:ruth-route",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1060,7 +1060,7 @@
      ],
      "id": "th:birth-burt",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1104,7 +1104,7 @@
      ],
      "id": "th:bath-bart",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1214,7 +1214,7 @@
      ],
      "id": "th:ruth-root",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1280,7 +1280,7 @@
      ],
      "id": "th:breath-brett",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1478,7 +1478,7 @@
      ],
      "id": "th:wrath-ross",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/s"
     },
     {
@@ -1500,7 +1500,7 @@
      ],
      "id": "th:cathy-cassie",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/s"
     },
     {
@@ -1522,7 +1522,7 @@
      ],
      "id": "th:kathy-cassie",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/s"
     },
     {
@@ -1698,7 +1698,7 @@
      ],
      "id": "th:martha-martyr",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -1852,7 +1852,7 @@
      ],
      "id": "th:thigh-thai",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2138,7 +2138,7 @@
      ],
      "id": "th:thick-tic",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2160,7 +2160,7 @@
      ],
      "id": "th:ethics-essex",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/s"
     },
     {
@@ -2226,7 +2226,7 @@
      ],
      "id": "th:kath-cat",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2314,7 +2314,7 @@
      ],
      "id": "th:berth-burt",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2380,7 +2380,7 @@
      ],
      "id": "th:thru-true",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2512,7 +2512,7 @@
      ],
      "id": "th:perth-purse",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/s"
     },
     {
@@ -2534,7 +2534,7 @@
      ],
      "id": "th:hearth-hart",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2908,7 +2908,7 @@
      ],
      "id": "th:perth-pert",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "θ/t"
     },
     {
@@ -2988,7 +2988,7 @@
    "production_only": false,
    "total_pairs": 135,
    "trainable": true,
-   "trainable_pairs": 120
+   "trainable_pairs": 101
   },
   {
    "default_weight": 0.8,
@@ -3346,7 +3346,7 @@
      ],
      "id": "s/z:juice-jews",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -3808,7 +3808,7 @@
      ],
      "id": "s/z:bruce-bruise",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -4094,7 +4094,7 @@
      ],
      "id": "s/z:marcus-markers",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -4314,7 +4314,7 @@
      ],
      "id": "s/z:sioux-zoo",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -4732,7 +4732,7 @@
      ],
      "id": "s/z:piece-pees",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -4754,7 +4754,7 @@
      ],
      "id": "s/z:peace-pees",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -4886,7 +4886,7 @@
      ],
      "id": "s/z:else-els",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "s/z"
     },
     {
@@ -5249,7 +5249,7 @@
    "production_only": false,
    "total_pairs": 102,
    "trainable": true,
-   "trainable_pairs": 71
+   "trainable_pairs": 64
   },
   {
    "default_weight": 0.6,
@@ -5585,7 +5585,7 @@
      ],
      "id": "i/ii:phil-feel",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -5607,7 +5607,7 @@
      ],
      "id": "i/ii:tim-team",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -5981,7 +5981,7 @@
      ],
      "id": "i/ii:pit-pete",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -6465,7 +6465,7 @@
      ],
      "id": "i/ii:sid-seed",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -6751,7 +6751,7 @@
      ],
      "id": "i/ii:lynn-lean",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -7367,7 +7367,7 @@
      ],
      "id": "i/ii:rick-reek",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -7477,7 +7477,7 @@
      ],
      "id": "i/ii:nil-neil",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -7499,7 +7499,7 @@
      ],
      "id": "i/ii:mick-meek",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -7587,7 +7587,7 @@
      ],
      "id": "i/ii:rick-wreak",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -7917,7 +7917,7 @@
      ],
      "id": "i/ii:sick-sikh",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -8203,7 +8203,7 @@
      ],
      "id": "i/ii:lyn-lean",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -8401,7 +8401,7 @@
      ],
      "id": "i/ii:tic-teak",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɪ/iː"
     },
     {
@@ -8478,7 +8478,7 @@
    "production_only": false,
    "total_pairs": 146,
    "trainable": true,
-   "trainable_pairs": 113
+   "trainable_pairs": 101
   },
   {
    "default_weight": 0.5,
@@ -9579,7 +9579,7 @@
      ],
      "id": "cat/cut:sam-some",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -9667,7 +9667,7 @@
      ],
      "id": "cat/cut:harry-hurry",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -9689,7 +9689,7 @@
      ],
      "id": "cat/cut:dan-done",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -9711,7 +9711,7 @@
      ],
      "id": "cat/cut:san-son",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -9821,7 +9821,7 @@
      ],
      "id": "cat/cut:san-sun",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10085,7 +10085,7 @@
      ],
      "id": "cat/cut:cam-come",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10173,7 +10173,7 @@
      ],
      "id": "cat/cut:sam-sum",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10239,7 +10239,7 @@
      ],
      "id": "cat/cut:marry-murray",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10525,7 +10525,7 @@
      ],
      "id": "cat/cut:nan-none",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10635,7 +10635,7 @@
      ],
      "id": "cat/cut:mam-mum",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10723,7 +10723,7 @@
      ],
      "id": "cat/cut:carrie-curry",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10789,7 +10789,7 @@
      ],
      "id": "cat/cut:nat-nut",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -10987,7 +10987,7 @@
      ],
      "id": "cat/cut:sally-sully",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11031,7 +11031,7 @@
      ],
      "id": "cat/cut:nan-nun",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11119,7 +11119,7 @@
      ],
      "id": "cat/cut:mac-muck",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11207,7 +11207,7 @@
      ],
      "id": "cat/cut:ration-russian",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11229,7 +11229,7 @@
      ],
      "id": "cat/cut:raf-rough",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11493,7 +11493,7 @@
      ],
      "id": "cat/cut:saturn-sutton",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11515,7 +11515,7 @@
      ],
      "id": "cat/cut:cams-comes",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11559,7 +11559,7 @@
      ],
      "id": "cat/cut:dan-dun",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11603,7 +11603,7 @@
      ],
      "id": "cat/cut:mag-mug",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11647,7 +11647,7 @@
      ],
      "id": "cat/cut:yap-yup",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11669,7 +11669,7 @@
      ],
      "id": "cat/cut:yak-yuck",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -11889,7 +11889,7 @@
      ],
      "id": "cat/cut:yam-yum",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ʌ"
     },
     {
@@ -12604,7 +12604,7 @@
    "production_only": false,
    "total_pairs": 139,
    "trainable": true,
-   "trainable_pairs": 121
+   "trainable_pairs": 97
   },
   {
    "default_weight": 0.3,
@@ -12742,7 +12742,7 @@
      ],
      "id": "long-back:cos-course",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -12852,7 +12852,7 @@
      ],
      "id": "long-back:max-marks",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -12874,7 +12874,7 @@
      ],
      "id": "long-back:mac-mark",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13050,7 +13050,7 @@
      ],
      "id": "long-back:cam-calm",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13116,7 +13116,7 @@
      ],
      "id": "long-back:dan-darn",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13182,7 +13182,7 @@
      ],
      "id": "long-back:alley-ali",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13204,7 +13204,7 @@
      ],
      "id": "long-back:fat-fart",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13358,7 +13358,7 @@
      ],
      "id": "long-back:bat-bart",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13380,7 +13380,7 @@
      ],
      "id": "long-back:mac-marc",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13424,7 +13424,7 @@
      ],
      "id": "long-back:wanna-warner",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -13446,7 +13446,7 @@
      ],
      "id": "long-back:pam-palm",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13490,7 +13490,7 @@
      ],
      "id": "long-back:hat-hart",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13798,7 +13798,7 @@
      ],
      "id": "long-back:stat-start",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -13864,7 +13864,7 @@
      ],
      "id": "long-back:max-marx",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14106,7 +14106,7 @@
      ],
      "id": "long-back:stats-starts",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14172,7 +14172,7 @@
      ],
      "id": "long-back:moss-morse",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -14216,7 +14216,7 @@
      ],
      "id": "long-back:matt-mart",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14282,7 +14282,7 @@
      ],
      "id": "long-back:ante-auntie",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14326,7 +14326,7 @@
      ],
      "id": "long-back:shone-sean",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -14370,7 +14370,7 @@
      ],
      "id": "long-back:cos-coarse",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -14458,7 +14458,7 @@
      ],
      "id": "long-back:madge-marge",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14480,7 +14480,7 @@
      ],
      "id": "long-back:ante-aunty",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14524,7 +14524,7 @@
      ],
      "id": "long-back:anti-auntie",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14656,7 +14656,7 @@
      ],
      "id": "long-back:anti-aunty",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14766,7 +14766,7 @@
      ],
      "id": "long-back:shone-shaun",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -14810,7 +14810,7 @@
      ],
      "id": "long-back:sam-psalm",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -14898,7 +14898,7 @@
      ],
      "id": "long-back:potts-ports",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɒ/ɔː"
     },
     {
@@ -15008,7 +15008,7 @@
      ],
      "id": "long-back:chad-chard",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -15162,7 +15162,7 @@
      ],
      "id": "long-back:hallow-harlow",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "æ/ɑː"
     },
     {
@@ -15373,7 +15373,7 @@
    "production_only": false,
    "total_pairs": 125,
    "trainable": true,
-   "trainable_pairs": 98
+   "trainable_pairs": 69
   },
   {
    "default_weight": 0.3,
@@ -15599,7 +15599,7 @@
      ],
      "id": "j/y:jail-yale",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "dʒ/j"
     },
     {
@@ -15687,7 +15687,7 @@
      ],
      "id": "j/y:jacques-yak",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "dʒ/j"
     },
     {
@@ -15819,7 +15819,7 @@
      ],
      "id": "j/y:jew-ewe",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "dʒ/j"
     },
     {
@@ -15841,7 +15841,7 @@
      ],
      "id": "j/y:jew-yew",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "dʒ/j"
     },
     {
@@ -15984,7 +15984,7 @@
    "production_only": false,
    "total_pairs": 27,
    "trainable": true,
-   "trainable_pairs": 11
+   "trainable_pairs": 7
   },
   {
    "default_weight": 0.3,
@@ -19230,28 +19230,6 @@
     {
      "a": {
       "band": "high",
-      "ipa": "sˈiː",
-      "rank": 69,
-      "word": "see"
-     },
-     "b": {
-      "band": "mid",
-      "ipa": "sˈiːd",
-      "rank": 5314,
-      "word": "seed"
-     },
-     "diff": [
-      "",
-      "d"
-     ],
-     "id": "-ed:see-seed",
-     "position": "final",
-     "trainable": true,
-     "variant": "/d"
-    },
-    {
-     "a": {
-      "band": "high",
       "ipa": "lˈɑːf",
       "rank": 967,
       "word": "laugh"
@@ -19620,7 +19598,7 @@
      ],
      "id": "-ed:rape-raped",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "/t"
     },
     {
@@ -19707,28 +19685,6 @@
       "d"
      ],
      "id": "-ed:arrange-arranged",
-     "position": "final",
-     "trainable": true,
-     "variant": "/d"
-    },
-    {
-     "a": {
-      "band": "mid",
-      "ipa": "fˈiː",
-      "rank": 4445,
-      "word": "fee"
-     },
-     "b": {
-      "band": "high",
-      "ipa": "fˈiːd",
-      "rank": 1563,
-      "word": "feed"
-     },
-     "diff": [
-      "",
-      "d"
-     ],
-     "id": "-ed:fee-feed",
      "position": "final",
      "trainable": true,
      "variant": "/d"
@@ -21445,28 +21401,6 @@
       "d"
      ],
      "id": "-ed:disturb-disturbed",
-     "position": "final",
-     "trainable": true,
-     "variant": "/d"
-    },
-    {
-     "a": {
-      "band": "mid",
-      "ipa": "wˈiː",
-      "rank": 4872,
-      "word": "wee"
-     },
-     "b": {
-      "band": "mid",
-      "ipa": "wˈiːd",
-      "rank": 4080,
-      "word": "weed"
-     },
-     "diff": [
-      "",
-      "d"
-     ],
-     "id": "-ed:wee-weed",
      "position": "final",
      "trainable": true,
      "variant": "/d"
@@ -25939,28 +25873,6 @@
     },
     {
      "a": {
-      "band": "mid",
-      "ipa": "ʃˈaɪn",
-      "rank": 2892,
-      "word": "shine"
-     },
-     "b": {
-      "band": "low",
-      "ipa": "ʃˈaɪnd",
-      "rank": 26242,
-      "word": "shined"
-     },
-     "diff": [
-      "",
-      "d"
-     ],
-     "id": "-ed:shine-shined",
-     "position": "final",
-     "trainable": true,
-     "variant": "/d"
-    },
-    {
-     "a": {
       "band": "high",
       "ipa": "hˈɛə",
       "rank": 613,
@@ -27083,28 +26995,6 @@
     },
     {
      "a": {
-      "band": "high",
-      "ipa": "wˈeɪk",
-      "rank": 746,
-      "word": "wake"
-     },
-     "b": {
-      "band": "low",
-      "ipa": "wˈeɪkt",
-      "rank": 48262,
-      "word": "waked"
-     },
-     "diff": [
-      "",
-      "t"
-     ],
-     "id": "-ed:wake-waked",
-     "position": "final",
-     "trainable": true,
-     "variant": "/t"
-    },
-    {
-     "a": {
       "band": "mid",
       "ipa": "ɹˈɛfɹəns",
       "rank": 5385,
@@ -27143,28 +27033,6 @@
       "d"
      ],
      "id": "-ed:glaze-glazed",
-     "position": "final",
-     "trainable": true,
-     "variant": "/d"
-    },
-    {
-     "a": {
-      "band": "low",
-      "ipa": "slˈeɪ",
-      "rank": 11495,
-      "word": "slay"
-     },
-     "b": {
-      "band": "low",
-      "ipa": "slˈeɪd",
-      "rank": 38740,
-      "word": "slayed"
-     },
-     "diff": [
-      "",
-      "d"
-     ],
-     "id": "-ed:slay-slayed",
      "position": "final",
      "trainable": true,
      "variant": "/d"
@@ -28276,9 +28144,9 @@
     "d"
    ],
    "production_only": false,
-   "total_pairs": 558,
+   "total_pairs": 552,
    "trainable": true,
-   "trainable_pairs": 485
+   "trainable_pairs": 478
   },
   {
    "default_weight": 0.2,
@@ -28834,7 +28702,7 @@
      ],
      "id": "h:aye-hi",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -28878,7 +28746,7 @@
      ],
      "id": "h:aye-high",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29186,7 +29054,7 @@
      ],
      "id": "h:anna-hannah",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29208,7 +29076,7 @@
      ],
      "id": "h:ellen-helen",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29340,7 +29208,7 @@
      ],
      "id": "h:andy-handy",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29472,7 +29340,7 @@
      ],
      "id": "h:art-hart",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29516,7 +29384,7 @@
      ],
      "id": "h:evans-heavens",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29626,7 +29494,7 @@
      ],
      "id": "h:ollie-holly",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29648,7 +29516,7 @@
      ],
      "id": "h:ali-harley",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -29912,7 +29780,7 @@
      ],
      "id": "h:avon-haven",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30110,7 +29978,7 @@
      ],
      "id": "h:audi-howdy",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30286,7 +30154,7 @@
      ],
      "id": "h:eighty-haiti",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30440,7 +30308,7 @@
      ],
      "id": "h:eddie-heady",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30550,7 +30418,7 @@
      ],
      "id": "h:ewe-hugh",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30572,7 +30440,7 @@
      ],
      "id": "h:yew-hugh",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30616,7 +30484,7 @@
      ],
      "id": "h:acne-hackney",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "/h"
     },
     {
@@ -30913,7 +30781,7 @@
    "production_only": false,
    "total_pairs": 119,
    "trainable": true,
-   "trainable_pairs": 66
+   "trainable_pairs": 50
   },
   {
    "default_weight": 0.2,
@@ -31249,7 +31117,7 @@
      ],
      "id": "sh/ch:shane-chain",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ʃ/tʃ"
     },
     {
@@ -31469,7 +31337,7 @@
      ],
      "id": "sh/ch:racial-rachel",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ʃ/tʃ"
     },
     {
@@ -31843,7 +31711,7 @@
      ],
      "id": "sh/ch:shaw-chore",
      "position": "initial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ʃ/tʃ"
     },
     {
@@ -32008,7 +31876,7 @@
    "production_only": false,
    "total_pairs": 49,
    "trainable": true,
-   "trainable_pairs": 45
+   "trainable_pairs": 42
   },
   {
    "default_weight": 0.2,
@@ -32542,7 +32410,7 @@
      ],
      "id": "er/or:pearl-paul",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -32586,7 +32454,7 @@
      ],
      "id": "er/or:kurt-court",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -32608,7 +32476,7 @@
      ],
      "id": "er/or:kurt-caught",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -32674,7 +32542,7 @@
      ],
      "id": "er/or:burt-bought",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -32740,7 +32608,7 @@
      ],
      "id": "er/or:shirley-surely",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -32806,7 +32674,7 @@
      ],
      "id": "er/or:turk-talk",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -33026,7 +32894,7 @@
      ],
      "id": "er/or:kirk-cork",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -33466,7 +33334,7 @@
      ],
      "id": "er/or:bern-born",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -33576,7 +33444,7 @@
      ],
      "id": "er/or:learner-lorna",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -33620,7 +33488,7 @@
      ],
      "id": "er/or:turk-torque",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -33972,7 +33840,7 @@
      ],
      "id": "er/or:bern-borne",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ɜː/ɔː"
     },
     {
@@ -34357,7 +34225,7 @@
    "production_only": false,
    "total_pairs": 106,
    "trainable": true,
-   "trainable_pairs": 80
+   "trainable_pairs": 69
   },
   {
    "default_weight": 0.15,
@@ -34473,7 +34341,7 @@
      ],
      "id": "schwa:fella-fellow",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "ə/əʊ"
     },
     {
@@ -34583,7 +34451,7 @@
      ],
      "id": "schwa:sofa-sofia",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "ə/ɪə"
     },
     {
@@ -34715,7 +34583,7 @@
      ],
      "id": "schwa:feller-fellow",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "ə/əʊ"
     },
     {
@@ -34737,7 +34605,7 @@
      ],
      "id": "schwa:lever-levi",
      "position": "final",
-     "trainable": true,
+     "trainable": false,
      "variant": "ə/aɪ"
     },
     {
@@ -34979,7 +34847,7 @@
      ],
      "id": "schwa:germaine-germain",
      "position": "medial",
-     "trainable": true,
+     "trainable": false,
      "variant": "ə/ɜː"
     },
     {
@@ -35117,7 +34985,7 @@
    "production_only": false,
    "total_pairs": 33,
    "trainable": true,
-   "trainable_pairs": 17
+   "trainable_pairs": 12
   },
   {
    "default_weight": 0.0,
@@ -35133,12 +35001,12 @@
    "trainable_pairs": 0
   }
  ],
- "generated": "2026-09-11T10:06:05Z",
+ "generated": "2026-09-11T11:14:34Z",
  "sources": {
   "frequency": "hermitdave/FrequencyWords en_50k 2018 (MIT)",
   "pronunciation": "Britfone 3.0.1 (MIT)"
  },
- "version": "2026-09-11.1",
+ "version": "2026-09-11.2",
  "voices": [
   "en-GB-SoniaNeural",
   "en-GB-LibbyNeural",
