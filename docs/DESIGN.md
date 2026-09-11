@@ -104,8 +104,11 @@ Poco F7 Pro on Android 15, sideloads APKs.
   override, clip pack status + download, versions). Large touch targets, works
   one-handed, dark theme follows the system.
 - Coach scripts: `scripts/plan-from-ledger.py`, `scripts/sessions-summary.py`,
-  Python 3 stdlib only, each with `--selftest`. `scripts/check.sh` runs the
-  Python selftests, the catalog build check and the Android unit tests.
+  `scripts/validate-contract.py`, `scripts/progress-report.py`, Python 3
+  stdlib only, each with `--selftest`. `scripts/check.sh` runs the Python
+  selftests, the catalog build check, the contract validator over
+  `data/examples/` and the worked examples of `docs/CONTRACT.md`, and the
+  Android unit tests.
 - CI: `.github/workflows/release.yml` on every push to `main` and on tags:
   build the release APK on `ubuntu-latest`, sign with the keystore from secrets
   `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,

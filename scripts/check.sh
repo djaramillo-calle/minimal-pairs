@@ -32,6 +32,7 @@ fi
 
 run_selftest scripts/plan-from-ledger.py
 run_selftest scripts/sessions-summary.py
+run_selftest scripts/progress-report.py
 run_selftest scripts/validate-contract.py
 
 if [ -f scripts/validate-contract.py ] && [ -d data/examples ]; then
@@ -43,6 +44,44 @@ if [ -f scripts/validate-contract.py ] && [ -d data/examples ]; then
     fi
 else
     step "skip: validate-contract.py data/examples (script or folder missing)"
+fi
+
+if [ -f scripts/validate-contract.py ] && [ -f docs/CONTRACT.md ]; then
+    step "scripts/validate-contract.py on the worked examples of docs/CONTRACT.md"
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/sessions"
+    python3 - "$tmp" <<'DOCJSON'
+import json, os, re, sys
+out = sys.argv[1]
+blocks = re.findall(r"```json\n(.*?)```", open("docs/CONTRACT.md", encoding="utf-8").read(), re.S)
+for text in blocks:
+    obj = json.loads(text)                      # a malformed example fails here
+    if "weights" in obj:
+        name = "plan.json"
+    elif "contrasts" in obj and "words" in obj:
+        name = "state.json"
+    else:
+        name = os.path.join("sessions", obj["id"] + ".json")
+    with open(os.path.join(out, name), "w", encoding="utf-8") as f:
+        json.dump(obj, f)
+with open(os.path.join(out, "catalog-version.txt"), "w", encoding="utf-8") as f:
+    f.write("2026-09-11.2\n")
+print("extracted %d worked example(s)" % len(blocks))
+DOCJSON
+    if [ -f data/catalog/catalog.json ]; then
+        python3 scripts/validate-contract.py "$tmp" --catalog data/catalog/catalog.json
+    else
+        python3 scripts/validate-contract.py "$tmp"
+    fi
+    rm -rf "$tmp"
+fi
+
+if [ -f scripts/progress-report.py ] && [ -d data/examples ]; then
+    step "scripts/progress-report.py data/examples (report and plan to a temp dir)"
+    tmp="$(mktemp -d)"
+    python3 scripts/progress-report.py data/examples --out "$tmp/report.md" --plan-out "$tmp/plan.json" >/dev/null
+    python3 scripts/validate-contract.py "$tmp" --quiet
+    rm -rf "$tmp"
 fi
 
 if [ "${SKIP_GRADLE:-0}" = "1" ]; then

@@ -47,6 +47,11 @@
       "position": "final"
     }
   ],
+  "levels": {
+    "th": 1,
+    "s/z": 1
+  },
+  "production": null,
   "summary": {
     "trials": 2,
     "correct": 1,
@@ -55,6 +60,7 @@
     "untrained_correct": 0,
     "untrained_pct": null,
     "duration_s": 41,
+    "perception_duration_s": 39,
     "mean_rt_ms": 1125,
     "untrained_shortfall": 2,
     "contrasts": {
@@ -72,6 +78,7 @@
         "untrained_correct": 0,
         "mean_rt_ms": 1300
       }
-    }
+    },
+    "production": null
   }
 }

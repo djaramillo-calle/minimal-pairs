@@ -171,7 +171,7 @@ ISO form.
   "version": 1,
   "id": "20260911T070211Z",
   "started": "2026-09-11T07:02:11Z",
-  "ended": "2026-09-11T07:05:28Z",
+  "ended": "2026-09-11T07:03:15Z",
   "app_version": "0.1.0",
   "catalog_version": "2026-09-11.2",
   "plan_source": "coach",
@@ -191,20 +191,27 @@ ISO form.
      }}
   ],
   "summary": {
-    "trials": 40, "correct": 31, "pct": 0.775,
-    "untrained_trials": 20, "untrained_correct": 14, "untrained_pct": 0.7,
-    "duration_s": 292, "perception_duration_s": 197, "mean_rt_ms": 950,
+    "trials": 1, "correct": 0, "pct": 0.0,
+    "untrained_trials": 1, "untrained_correct": 0, "untrained_pct": 0.0,
+    "duration_s": 64, "perception_duration_s": 14, "mean_rt_ms": 1210,
     "untrained_shortfall": 0,
     "contrasts": {
-      "th": {"trials": 10, "correct": 7, "untrained_trials": 5, "untrained_correct": 3, "mean_rt_ms": 1010}
+      "th": {"trials": 1, "correct": 0, "untrained_trials": 1, "untrained_correct": 0, "mean_rt_ms": 1210}
     },
     "production": {
-      "pairs": 8, "points": 11, "max_points": 16, "pct": 0.6875, "duration_s": 95,
-      "contrasts": {"th": {"pairs": 3, "points": 4}}
+      "pairs": 1, "points": 1, "max_points": 2, "pct": 0.5, "duration_s": 46,
+      "contrasts": {"th": {"pairs": 1, "points": 1}}
     }
   }
 }
 ```
+
+The example is deliberately one trial and one Say-it pair long, and nothing in
+it is abbreviated: every worked example in this document is checked with
+`scripts/validate-contract.py`, and the summary of a real session counts all
+`trials_per_session` trial rows and all `production_pairs` production rows the
+same way (`summary.duration_s` is `ended` − `started`, and
+`perception_duration_s` plus `summary.production.duration_s` never exceed it).
 
 `levels` is the ladder snapshot at session start. `production` and
 `summary.production` are `null` when the block was off (`production_pairs: 0`)
@@ -243,7 +250,7 @@ guesses on vowels), but three signals with a majority vote are.
 
 | Signal | Call | Vote for the intended word when… |
 |---|---|---|
-| phoneme | en-US pronunciation assessment, IPA phonemes, reference = intended word, and again with reference = the other word | the differing phoneme scores ≥ 15 points higher under the intended reference than the other word's differing phoneme under the other reference (`ph` vs `ph_other`); the reverse votes for the other word |
+| phoneme | en-US pronunciation assessment, IPA phonemes, reference = intended word, and again with reference = the other word | the differing phoneme scores ≥ 15 points higher under the intended reference than the other word's differing phoneme under the other reference (`ph` vs `ph_other`); the reverse votes for the other word. **Insertion pairs** (`-ed`, `h`: walk/walked, eat/heat) have the phoneme on one side only: it is scored under the reference that contains it and votes for that word at ≥ 60, for the other word below 40, and not at all in between |
 | word | the same two calls, word-level accuracy | `acc ≥ acc_other + 10`; reverse votes for the other word |
 | recognition | en-GB recognition without reference text | the recognised word is the intended word, or a catalog word with the same IPA (homophones such as court/caught); the other word votes for the other |
 
@@ -260,9 +267,9 @@ Row fields under `words.<word>`:
 |---|---|
 | `heard` | the intended word, the other word, or `"?"` |
 | `acc` / `acc_other` | word accuracy (0–100) under the intended / the other reference |
-| `ph` / `ph_other` | accuracy of the differing phoneme under each reference; `null` when Azure returned no phonemes or the contrast skips the signal |
-| `votes` | the three votes, e.g. `"phoneme:intended word:intended recognition:other"` |
-| `recognised` | the en-GB recognition text, lower-cased, punctuation stripped |
+| `ph` / `ph_other` | accuracy of the differing phoneme under each reference; `null` when Azure returned no phonemes or the contrast skips the signal. On an insertion pair (`-ed`, `h`) only one of the two references contains the phoneme: its score goes in `ph` when the intended word carries it (`walked` in walk/walked) and in `ph_other` when the other word does, and the other field is `null` |
+| `votes` | the three votes, always in the order `phoneme`, `word`, `recognition`, each `intended`, `other` or `none`, e.g. `"phoneme:intended word:intended recognition:other"`. `none` is a signal that did not vote: no clear winner by the rule above, no phonemes returned, a one-sided phoneme (insertion pair) scoring between 40 and 60, a recognition that matched neither word, or the phoneme signal being skipped for `long-back` and `schwa` (there it is always `phoneme:none`). On a substitution pair the phoneme signal needs both `ph` and `ph_other`; on an insertion pair it votes on the single score that exists |
+| `recognised` | the en-GB recognition text, lower-cased, punctuation stripped; `null` when Azure recognised nothing (then the recognition vote is `none`) |
 | `ms` | recording length before padding |
 | `attempts` | recordings made for this word (a recording with no speech may be redone once; a scored one is never redone) |
 
@@ -277,13 +284,17 @@ position in the word.
 `0.0` in that case.
 
 `summary.untrained_shortfall` counts trials that were meant to be untrained but
-no untrained word was left in the chosen contrast and band, so the scheduler
-used the least-exposed word instead. When it grows, the coach should widen
-`band` or lower `untrained_ratio`; `plan-from-ledger.py` does the widening by
-itself (see below) and `sessions-summary.py` shows the number per week. With
-the default `band` and weights the heavily weighted contrasts run out of
-untrained words after roughly 15 sessions (b/v has 7 high/mid pairs, j/y one),
-so this is the normal course, not an error.
+the chosen contrast had no untrained word left **anywhere in `plan.band`**, so
+the scheduler used the least-exposed word instead. The probe is not confined to
+the contrast's level rung: when the rung's bands hold no untrained word it is
+drawn from the first higher rung's bands within the ceiling that does
+(`docs/ADAPTATION.md`), so a shortfall means the contrast's whole allowed
+lexicon has been heard, not that its rung is narrow. When it grows, the coach
+should widen `band` or lower `untrained_ratio`; `plan-from-ledger.py` does the
+widening by itself (see below) and `sessions-summary.py` shows the number per
+week. With the default `band` (all three) it takes a long run of sessions and
+happens first on the small contrasts (j/y has 13 trainable words, b/v 56), so
+it is the normal end of a contrast's lexicon, not an error.
 
 ## `catalog-version.txt`
 
@@ -296,11 +307,25 @@ as long as both words and the contrast stay the same.
 
 - `scripts/plan-from-ledger.py --ledger logs/pronunciation-ledger.json --sessions <dir> --out plan.json`
   turns the coach's pronunciation ledger (`{"phonemes": {"<class>": {"count": n, "words": {...}}}}`)
-  plus recent session files into `plan.json`: weights proportional to ledger
-  counts and recent misses, with a floor so every trainable contrast keeps
-  presence. When the recent sessions' `untrained_shortfall` reaches 10 % of
-  their trials it widens `band` to `high,mid,low` (unless `--band` was given,
-  in which case it warns loudly). `--selftest` exercises it on synthetic data.
+  plus recent session files into `plan.json`. The weight of a contrast is
+
+  ```
+  score  = ledger count + 2 × incorrect untrained trials + 3 × Say-it pairs
+           scored below 2          (the trials and pairs of the last --days days, default 14)
+  weight = 0.15 + 0.85 × score / the largest score          rounded to 2 decimals
+  ```
+
+  so weights are proportional to ledger counts and recent misses, with a floor
+  (0.15) so every trainable contrast keeps presence; the mouth counts for more
+  than the ear because it is the ledger's own class of evidence. A contrast
+  whose last untrained probe dropped ≥ 15 points against the mean of the
+  previous two (over **all** sessions in the folder, not only the window) then
+  gets its weight × 1.5, capped at 1.0. Production-only contrasts get 0, and
+  with no evidence at all the catalog defaults are used, still subject to the
+  regression rule. When the recent sessions' `untrained_shortfall` reaches
+  10 % of their trials it widens `band` to `high,mid,low` (unless `--band` was
+  given, in which case it warns loudly). `--selftest` exercises it on
+  synthetic data.
 - `scripts/sessions-summary.py <sessions dir>` prints one TSV row per ISO week
   and contrast: percent correct on untrained words, trials, untrained trials,
   mean reaction ms, sessions, and the week's total `untrained_shortfall`.
@@ -313,14 +338,24 @@ as long as both words and the contrast stay the same.
   longest streak, against `weekly_minutes_target`), per contrast the level,
   the untrained-perception and production trends over the last weeks, and
   flags — `regression` (a drop of ≥ 15 points against the previous two
-  sessions), `plateau` (three weeks within ±5 points below 90 % at the same
-  level), `mastered` (≥ 95 % untrained and ≥ 85 % production for three
-  sessions), `untested` (no production yet) — with the plan changes it
-  recommends; `--plan-out` writes them as a `plan.json` (weights up on
-  regression and plateau, feedback `brief` on a plateau at level ≥ 3, more
-  `production_pairs` when production lags perception by ≥ 20 points, weight
-  to the floor and level pinned at 4 when mastered). It reads the same folder
+  sessions), `plateau` (three *consecutive* weeks with probes, within ±5
+  points of each other below 90 % at the same level; at most one week without
+  a probe may sit between them, and three flat probes spread wider than that
+  are reported as a consistency problem instead of a plateau), `mastered`
+  (≥ 95 % untrained and ≥ 85 % production for three sessions), `untested` (no
+  production yet) — with the plan changes it recommends; `--plan-out` writes
+  them as a `plan.json`. That plan starts from the current `plan.json`'s
+  levers **and weights**: a weight moves only where this report's evidence
+  justifies it (× 1.5 on regression, × 1.25 on a plateau, to the floor with
+  the level pinned at 4 when mastered), and a contrast the current plan does
+  not name is filled in with `plan-from-ledger.py`'s score rule. With
+  `--ledger` the coach's counts are the fresh evidence and every weight comes
+  from that rule instead. It also switches `feedback` to `brief` on a plateau
+  at level ≥ 3, adds 4 `production_pairs` (max 30) when production lags
+  perception by ≥ 20 points, and widens `band` to `high,mid,low` when the
+  recent sessions report `untrained_shortfall` on ≥ 10 % of their trials —
+  naming the widening among the recommended changes. It reads the same folder
   the app writes, so the cloud coach can run it straight from Drive.
 
 
-Both are stdlib-only Python 3.9+, like the rest of the coaching system.
+All of them are stdlib-only Python 3.9+, like the rest of the coaching system.

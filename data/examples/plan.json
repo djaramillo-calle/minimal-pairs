@@ -13,8 +13,16 @@
     "en-GB-ThomasNeural",
     "en-GB-AlfieNeural"
   ],
-  "band": ["high", "mid"],
+  "band": [
+    "high",
+    "mid"
+  ],
   "feedback": "full",
+  "production_pairs": 8,
+  "production_threshold": 60,
+  "max_level": 4,
+  "levels": {},
+  "weekly_minutes_target": 20,
   "weights": {
     "th": 1.0,
     "s/z": 0.8,

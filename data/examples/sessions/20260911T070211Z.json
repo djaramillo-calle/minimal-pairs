@@ -2,7 +2,7 @@
   "version": 1,
   "id": "20260911T070211Z",
   "started": "2026-09-11T07:02:11Z",
-  "ended": "2026-09-11T07:03:05Z",
+  "ended": "2026-09-11T07:03:50Z",
   "app_version": "0.1.0",
   "catalog_version": "2026-09-11.2",
   "plan_source": "coach",
@@ -16,33 +16,212 @@
     "en-GB-AlfieNeural"
   ],
   "trials": [
-    {"i": 1, "contrast": "th", "pair": "th:through-true", "target": "through", "other": "true",
-     "chosen": "through", "correct": true, "voice": "en-GB-SoniaNeural", "rt_ms": 880,
-     "replays": 0, "trained": false, "band": "high", "position": "initial"},
-    {"i": 2, "contrast": "s/z", "pair": "s/z:course-cause", "target": "cause", "other": "course",
-     "chosen": "course", "correct": false, "voice": "en-GB-RyanNeural", "rt_ms": 1240,
-     "replays": 1, "trained": false, "band": "high", "position": "final"},
-    {"i": 3, "contrast": "th", "pair": "th:thought-sort", "target": "sort", "other": "thought",
-     "chosen": "sort", "correct": true, "voice": "en-GB-LibbyNeural", "rt_ms": 910,
-     "replays": 0, "trained": true, "band": "high", "position": "initial"},
-    {"i": 4, "contrast": "s/z", "pair": "s/z:once-ones", "target": "once", "other": "ones",
-     "chosen": "once", "correct": true, "voice": "en-GB-ThomasNeural", "rt_ms": 1005,
-     "replays": 0, "trained": true, "band": "high", "position": "final"},
-    {"i": 5, "contrast": "th", "pair": "th:they-day", "target": "day", "other": "they",
-     "chosen": "they", "correct": false, "voice": "en-GB-HollieNeural", "rt_ms": 1320,
-     "replays": 0, "trained": false, "band": "high", "position": "initial"},
-    {"i": 6, "contrast": "s/z", "pair": "s/z:ice-eyes", "target": "eyes", "other": "ice",
-     "chosen": "eyes", "correct": true, "voice": "en-GB-AlfieNeural", "rt_ms": 760,
-     "replays": 0, "trained": false, "band": "high", "position": "final"}
+    {
+      "i": 1,
+      "contrast": "th",
+      "pair": "th:through-true",
+      "target": "through",
+      "other": "true",
+      "chosen": "through",
+      "correct": true,
+      "voice": "en-GB-SoniaNeural",
+      "rt_ms": 880,
+      "replays": 0,
+      "trained": false,
+      "band": "high",
+      "position": "initial"
+    },
+    {
+      "i": 2,
+      "contrast": "s/z",
+      "pair": "s/z:course-cause",
+      "target": "cause",
+      "other": "course",
+      "chosen": "course",
+      "correct": false,
+      "voice": "en-GB-RyanNeural",
+      "rt_ms": 1240,
+      "replays": 1,
+      "trained": false,
+      "band": "high",
+      "position": "final"
+    },
+    {
+      "i": 3,
+      "contrast": "th",
+      "pair": "th:thought-sort",
+      "target": "sort",
+      "other": "thought",
+      "chosen": "sort",
+      "correct": true,
+      "voice": "en-GB-LibbyNeural",
+      "rt_ms": 910,
+      "replays": 0,
+      "trained": true,
+      "band": "high",
+      "position": "initial"
+    },
+    {
+      "i": 4,
+      "contrast": "s/z",
+      "pair": "s/z:once-ones",
+      "target": "once",
+      "other": "ones",
+      "chosen": "once",
+      "correct": true,
+      "voice": "en-GB-ThomasNeural",
+      "rt_ms": 1005,
+      "replays": 0,
+      "trained": true,
+      "band": "high",
+      "position": "final"
+    },
+    {
+      "i": 5,
+      "contrast": "th",
+      "pair": "th:they-day",
+      "target": "day",
+      "other": "they",
+      "chosen": "they",
+      "correct": false,
+      "voice": "en-GB-HollieNeural",
+      "rt_ms": 1320,
+      "replays": 0,
+      "trained": false,
+      "band": "high",
+      "position": "initial"
+    },
+    {
+      "i": 6,
+      "contrast": "s/z",
+      "pair": "s/z:ice-eyes",
+      "target": "eyes",
+      "other": "ice",
+      "chosen": "eyes",
+      "correct": true,
+      "voice": "en-GB-AlfieNeural",
+      "rt_ms": 760,
+      "replays": 0,
+      "trained": false,
+      "band": "high",
+      "position": "final"
+    }
+  ],
+  "levels": {
+    "th": 2,
+    "s/z": 1
+  },
+  "production": [
+    {
+      "i": 1,
+      "contrast": "th",
+      "pair": "th:they-day",
+      "a": "they",
+      "b": "day",
+      "points": 1,
+      "level": 2,
+      "words": {
+        "they": {
+          "heard": "day",
+          "acc": 72,
+          "acc_other": 90,
+          "ph": 35,
+          "ph_other": 96,
+          "votes": "phoneme:other word:other recognition:other",
+          "recognised": "day",
+          "ms": 640,
+          "attempts": 1
+        },
+        "day": {
+          "heard": "day",
+          "acc": 97,
+          "acc_other": 80,
+          "ph": 98,
+          "ph_other": 52,
+          "votes": "phoneme:intended word:intended recognition:intended",
+          "recognised": "day",
+          "ms": 590,
+          "attempts": 1
+        }
+      }
+    },
+    {
+      "i": 2,
+      "contrast": "s/z",
+      "pair": "s/z:course-cause",
+      "a": "course",
+      "b": "cause",
+      "points": 1,
+      "level": 1,
+      "words": {
+        "course": {
+          "heard": "course",
+          "acc": 90,
+          "acc_other": 84,
+          "ph": 88,
+          "ph_other": 80,
+          "votes": "phoneme:none word:none recognition:intended",
+          "recognised": "course",
+          "ms": 710,
+          "attempts": 1
+        },
+        "cause": {
+          "heard": "?",
+          "acc": 78,
+          "acc_other": 76,
+          "ph": 70,
+          "ph_other": 72,
+          "votes": "phoneme:none word:none recognition:none",
+          "recognised": "cores",
+          "ms": 680,
+          "attempts": 2
+        }
+      }
+    }
   ],
   "summary": {
-    "trials": 6, "correct": 4, "pct": 0.667,
-    "untrained_trials": 4, "untrained_correct": 2, "untrained_pct": 0.5,
-    "duration_s": 54, "mean_rt_ms": 1019,
+    "trials": 6,
+    "correct": 4,
+    "pct": 0.667,
+    "untrained_trials": 4,
+    "untrained_correct": 2,
+    "untrained_pct": 0.5,
+    "duration_s": 99,
+    "perception_duration_s": 54,
+    "mean_rt_ms": 1019,
     "untrained_shortfall": 0,
     "contrasts": {
-      "th": {"trials": 3, "correct": 2, "untrained_trials": 2, "untrained_correct": 1, "mean_rt_ms": 1037},
-      "s/z": {"trials": 3, "correct": 2, "untrained_trials": 2, "untrained_correct": 1, "mean_rt_ms": 1002}
+      "th": {
+        "trials": 3,
+        "correct": 2,
+        "untrained_trials": 2,
+        "untrained_correct": 1,
+        "mean_rt_ms": 1037
+      },
+      "s/z": {
+        "trials": 3,
+        "correct": 2,
+        "untrained_trials": 2,
+        "untrained_correct": 1,
+        "mean_rt_ms": 1002
+      }
+    },
+    "production": {
+      "pairs": 2,
+      "points": 2,
+      "max_points": 4,
+      "pct": 0.5,
+      "duration_s": 41,
+      "contrasts": {
+        "th": {
+          "pairs": 1,
+          "points": 1
+        },
+        "s/z": {
+          "pairs": 1,
+          "points": 1
+        }
+      }
     }
   }
 }
