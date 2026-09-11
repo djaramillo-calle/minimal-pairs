@@ -1,0 +1,157 @@
+# Build, sign and publish Minimal Pairs.
+#
+# Every push to main (and every v* tag) produces a GitHub Release holding the
+# APK, clips.zip (the clip pack; the app downloads it from
+# releases/latest/download/clips.zip, so the asset name is fixed) and a
+# versioned copy of the pack. Pull requests only build and upload the APK as a
+# workflow artifact.
+#
+# Secrets (all optional; the release notes say what was available):
+#   AZURE_SPEECH_KEY, AZURE_SPEECH_REGION      render the clip pack (cached by catalog version + voices)
+#   ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#                                              release signing (debug key otherwise)
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest   # Android SDK preinstalled at $ANDROID_HOME
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+
+      - name: Checks (unit tests, script selftests, catalog)
+        run: bash scripts/check.sh
+
+      # ---- clip pack -------------------------------------------------------
+      - name: Compute clip cache key
+        id: key
+        run: |
+          VOICES_SHA=$(jq -c '.voices' data/catalog/catalog.json | sha256sum | cut -c1-16)
+          echo "catalog=$(tr -d '[:space:]' < data/catalog/catalog-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "key=clips-$(tr -d '[:space:]' < data/catalog/catalog-version.txt)-$VOICES_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Restore rendered clip pack
+        id: restore
+        uses: actions/cache/restore@v4
+        with: { path: clips, key: "${{ steps.key.outputs.key }}" }
+
+      - name: Render clip pack with Azure (only when missing and secrets exist)
+        env:
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+        run: |
+          if [ -f clips/index.json ]; then echo "pack restored from cache"; exit 0; fi
+          if [ -z "$AZURE_SPEECH_KEY" ] || [ -z "$AZURE_SPEECH_REGION" ]; then
+            echo "Azure secrets not set; skipping render"; exit 0
+          fi
+          python3 scripts/render-clips.py --out clips
+
+      - name: Save rendered clip pack to cache
+        if: steps.restore.outputs.cache-hit != 'true' && hashFiles('clips/index.json') != ''
+        uses: actions/cache/save@v4
+        with: { path: clips, key: "${{ steps.key.outputs.key }}" }
+
+      - name: Install pack into app assets (placeholder if nothing was rendered)
+        id: pack
+        run: |
+          PACK=full
+          if [ ! -f clips/index.json ]; then
+            echo "No rendered pack; using data/placeholder-clips"
+            rm -rf clips && cp -r data/placeholder-clips/clips clips && PACK=placeholder
+          fi
+          rm -rf app/src/main/assets/clips && mkdir -p app/src/main/assets
+          cp -r clips app/src/main/assets/clips
+          (cd clips && zip -qr ../clips.zip .)
+          cp clips.zip "clips-${{ steps.key.outputs.catalog }}.zip"
+          echo "mode=$PACK" >> "$GITHUB_OUTPUT"
+          echo "files=$(find clips -type f | wc -l)" >> "$GITHUB_OUTPUT"
+          echo "mb=$(du -sm clips | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      # ---- APK --------------------------------------------------------------
+      - name: Build release APK
+        id: apk
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          SIGNED=debug
+          if [ -n "$ANDROID_KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export KEYSTORE_FILE="$RUNNER_TEMP/release.jks"   # app/build.gradle.kts reads these
+            SIGNED=release
+          fi
+          echo "Signing mode: $SIGNED"
+          ./gradlew --no-daemon assembleRelease
+          APK=$(find app/build/outputs/apk/release -name 'minimal-pairs-*.apk' | head -n1)
+          test -n "$APK" || { echo "no APK produced"; exit 1; }
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "signed=$SIGNED" >> "$GITHUB_OUTPUT"
+          echo "APK: $APK ($(du -h "$APK" | cut -f1)), sha256 $(sha256sum "$APK" | cut -d' ' -f1)"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with: { name: apk, path: "${{ steps.apk.outputs.path }}" }
+
+      # ---- release ----------------------------------------------------------
+      - name: Release notes and tag
+        if: github.event_name != 'pull_request'
+        id: notes
+        env:
+          SIGNED: ${{ steps.apk.outputs.signed }}
+          PACK: ${{ steps.pack.outputs.mode }}
+          FILES: ${{ steps.pack.outputs.files }}
+          MB: ${{ steps.pack.outputs.mb }}
+          CATALOG: ${{ steps.key.outputs.catalog }}
+          APK: ${{ steps.apk.outputs.path }}
+        run: |
+          {
+            echo "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) from commit ${GITHUB_SHA::12}."; echo
+            echo "APK: \`$(basename "$APK")\`, $(du -h "$APK" | cut -f1), sha256 \`$(sha256sum "$APK" | cut -d' ' -f1)\`."
+            if [ "$SIGNED" = release ]; then echo "Signed with the release key."; else
+              echo "Signed with a debug key: Android will ask to uninstall a previously installed release-signed build before installing this one."; fi
+            echo; echo "Clip pack: $PACK, $FILES files, $MB MB, catalog $CATALOG (\`clips.zip\`)."
+            echo "Contrasts:"
+            python3 -c "import json; [print('- %s (%s): %d pairs' % (c['id'], c['label'], len(c['pairs']))) for c in json.load(open('data/catalog/catalog.json'))['contrasts']]"
+          } > release-notes.md
+          cat release-notes.md
+          if [ "$GITHUB_REF_TYPE" = tag ]; then TAG="$GITHUB_REF_NAME"; else
+            VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)
+            TAG="v${VERSION:-0.0.0}-build.${GITHUB_RUN_NUMBER}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: Minimal Pairs ${{ steps.notes.outputs.tag }}
+          body_path: release-notes.md
+          prerelease: false
+          make_latest: "true"
+          files: |
+            ${{ steps.apk.outputs.path }}
+            clips.zip
+            clips-${{ steps.key.outputs.catalog }}.zip
