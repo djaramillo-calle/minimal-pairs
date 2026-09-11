@@ -49,7 +49,8 @@ android {
                 "proguard-rules.pro"
             )
             if (hasReleaseKeystore) {
-                println("Signing release with: keystore ${keystoreFile!!.name} (alias ${signingInput("KEY_ALIAS")})")
+                // Only the file name: the alias comes from a secret and must not reach the log.
+                println("Signing release with: keystore ${keystoreFile!!.name}")
                 signingConfig = signingConfigs.getByName("release")
             } else {
                 // No keystore configured (or the file is missing): sign with the
@@ -89,8 +90,12 @@ android {
     }
 
     // Do not compress clips so AssetManager can memory-map them (openFd works).
+    // The pack's sha256.txt manifest is only used to verify a *downloaded* pack
+    // (ClipDownloader); the app never reads it from assets, so keep it out of
+    // the APK (~80 KB deflated). The pattern is aapt's default plus that file.
     androidResources {
         noCompress += "webm"
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:!sha256.txt"
     }
 
     packaging {

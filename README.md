@@ -10,7 +10,36 @@ drill from outside through a `plan.json` file and reads the results the app
 writes to a shared folder; the app itself has no accounts, no backend and no
 analytics, and works offline once the clip pack is on the phone.
 
-<!-- STATS -->
+## What is in the box
+
+Catalog `2026-09-11.2`, generated from Britfone 3.0.1 and the en_50k frequency
+list: 13 contrasts, 1123 trainable minimal pairs (1017 distinct sound pairs
+once homophone spellings are counted once), 1941 trainable words. `s-cluster`
+is production-only and has no pairs.
+
+| Contrast | Sounds | Trainable pairs | Distinct sound pairs |
+|---|---|---|---|
+| th | θ/t, θ/s, ð/d | 101 | 86 |
+| s/z | s/z | 64 | 53 |
+| i/ii | ɪ/iː | 101 | 90 |
+| b/v | b/v | 33 | 24 |
+| cat/cut | æ/ʌ | 97 | 94 |
+| long-back | ɒ/ɔː, æ/ɑː | 69 | 61 |
+| j/y | dʒ/j | 7 | 6 |
+| -ed | final t/d present vs absent | 478 | 469 |
+| h | h vs zero | 50 | 38 |
+| sh/ch | ʃ/tʃ | 42 | 37 |
+| er/or | ɜː/ɔː | 69 | 47 |
+| schwa | ə vs a full vowel | 12 | 12 |
+
+`j/y` and `schwa` are limited by the Britfone lexicon, not by the rules.
+
+Clip pack: 1941 words × 6 en-GB neural voices = 12,738 WebM/Opus clips,
+64.2 MB (about 5 KB per clip). That is above the 40 MB bundling limit, so
+the APK bundles the two highest-weight contrasts (`th` and `s/z`: 278 words,
+1668 clips, 8.3 MB) and the whole pack ships as `clips.zip` on the GitHub
+Release; the app offers the download on first run. The release APK is about
+11 MB.
 
 ## Screens
 
@@ -43,8 +72,10 @@ app, so nothing is lost. The release notes say which key signed each build.
 - The app asks for its data folder. Pick, or create, `Documents/MinimalPairs`
   and confirm. The choice is remembered.
 - If the build carries only part of the clip pack (the release notes say
-  "placeholder"), Settings offers to download `clips.zip` from the latest
-  release. This needs a network connection once; after that the app is offline.
+  which contrasts are bundled, or "placeholder"), Settings offers to download
+  `clips.zip` from the latest release. This needs a network connection once;
+  after that the app is offline. The app only keeps a downloaded pack that is
+  complete and covers its own catalog.
 
 ### Sync with the coach (Autosync for Google Drive)
 
@@ -87,8 +118,9 @@ by hand. It runs `scripts/check.sh`, restores or renders the clip pack, builds
 the release APK, and publishes a GitHub Release with three assets:
 `minimal-pairs-<version>.apk`, `clips.zip` (always this exact name: the app
 downloads `releases/latest/download/clips.zip`) and
-`clips-<catalog-version>.zip`. The release notes state the signing mode and
-whether the pack is full or the placeholder.
+`clips-<catalog-version>.zip`. The release notes state the signing mode,
+whether the pack is full or the placeholder, and what the APK bundles (the
+whole pack when it is at most 40 MB, else the two highest-weight contrasts).
 
 Repository secrets (Settings → Secrets and variables → Actions):
 
@@ -97,15 +129,19 @@ Repository secrets (Settings → Secrets and variables → Actions):
 | `ANDROID_KEYSTORE_B64` | release keystore, base64 on one line |
 | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
 | `ANDROID_KEY_ALIAS` | key alias (`minimalpairs` by default) |
-| `ANDROID_KEY_PASSWORD` | key password |
+| `ANDROID_KEY_PASSWORD` | key password: the same value as `ANDROID_KEYSTORE_PASSWORD` (a PKCS12 keystore has one password) |
 | `AZURE_SPEECH_KEY` | Azure AI Speech key, used to render the clip pack |
-| `AZURE_SPEECH_REGION` | Azure region of that key, e.g. `uksouth` |
+| `AZURE_SPEECH_REGION` | Azure region of that key, as shown on the Speech resource's "Keys and Endpoint" page, e.g. `westeurope` |
 
 All six are optional. Without the keystore secrets the APK is signed with a
 debug key (the release notes say so). Without the Azure secrets, and with no
-cached pack, the build ships the tiny committed placeholder pack. The rendered
-pack is cached by catalog version and voice list, so Azure is only called when
-the catalog changes.
+cached pack, the build reuses the previous release's `clips-<catalog-version>.zip`
+when it is a complete pack for the same catalog; failing that it ships the tiny
+committed placeholder pack and the release is *not* marked latest, so
+`releases/latest/download/clips.zip` keeps serving the last real pack. The
+rendered pack is cached by catalog version and voice list (a partial render is
+cached too and completed on the next run), so Azure is only called when the
+catalog changes.
 
 Create the keystore once with `scripts/make-keystore.sh`; it prints the exact
 secrets to add and how to base64 the file. Keep the `.jks` file and its

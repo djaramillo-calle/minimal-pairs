@@ -6,8 +6,10 @@
 #   scripts/make-keystore.sh [output.jks]          default: release.jks in the current directory
 #
 # Environment (all optional; prompted for when unset, never echoed):
-#   KEYSTORE_PASSWORD   keystore password (at least 6 characters, keytool's minimum)
-#   KEY_PASSWORD        key password; defaults to KEYSTORE_PASSWORD
+#   KEYSTORE_PASSWORD   keystore password (at least 6 characters, keytool's minimum).
+#                       A PKCS12 keystore has a single password: the key uses the
+#                       same one, so ANDROID_KEY_PASSWORD must equal
+#                       ANDROID_KEYSTORE_PASSWORD (keytool ignores -keypass here).
 #   KEY_ALIAS           key alias, default "minimalpairs"
 #   KEY_DNAME           X.500 name, default "CN=Minimal Pairs, O=djaramillo-calle"
 #
@@ -37,18 +39,23 @@ if [ "${#KEYSTORE_PASSWORD}" -lt 6 ]; then
     echo "error: keystore password must be at least 6 characters" >&2
     exit 1
 fi
-KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+# PKCS12 keystores cannot hold a key password different from the store
+# password (keytool silently ignores -keypass), so a separate KEY_PASSWORD would
+# only produce a secret the CI build cannot open the key with.
+if [ -n "${KEY_PASSWORD:-}" ] && [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
+    echo "error: KEY_PASSWORD is set and differs from KEYSTORE_PASSWORD; a PKCS12 keystore has one password" >&2
+    exit 1
+fi
 
-# Passwords go to keytool through environment variables (":env" prefix), so they
-# never appear on the command line or in the process list.
-export KEYSTORE_PASSWORD KEY_PASSWORD
+# The password goes to keytool through an environment variable (":env" prefix),
+# so it never appears on the command line or in the process list.
+export KEYSTORE_PASSWORD
 keytool -genkeypair \
     -keystore "$OUT" -storetype PKCS12 \
     -alias "$KEY_ALIAS" \
     -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "$KEY_DNAME" \
-    -storepass:env KEYSTORE_PASSWORD \
-    -keypass:env KEY_PASSWORD
+    -storepass:env KEYSTORE_PASSWORD
 
 chmod 600 "$OUT"
 
@@ -67,7 +74,7 @@ Add these four repository secrets on GitHub
   ANDROID_KEYSTORE_B64        the file, base64 on one line:  $B64
   ANDROID_KEYSTORE_PASSWORD   the keystore password you just entered
   ANDROID_KEY_ALIAS           $KEY_ALIAS
-  ANDROID_KEY_PASSWORD        the key password (same as the keystore password unless you set KEY_PASSWORD)
+  ANDROID_KEY_PASSWORD        the same value as ANDROID_KEYSTORE_PASSWORD (a PKCS12 keystore has one password)
 
 Then every push to main builds a release-signed APK.
 

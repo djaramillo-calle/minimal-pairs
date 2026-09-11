@@ -6,10 +6,20 @@
 # versioned copy of the pack. Pull requests only build and upload the APK as a
 # workflow artifact.
 #
+# The clip pack comes, in this order, from: the Actions cache (keyed by catalog
+# version + voices; a partial render is cached too and completed next time),
+# the previous release's clips-<catalog>.zip when it is a complete pack for the
+# same catalog, an Azure render, or the committed placeholder. A placeholder
+# release is never marked "latest", so releases/latest/download/clips.zip keeps
+# serving the last real pack (and the app refuses a pack with complete:false).
+# The APK bundles the whole pack when it is <= 40 MB, else the two
+# highest-default-weight contrasts (docs/DESIGN.md "Clips").
+#
 # Secrets (all optional; the release notes say what was available):
-#   AZURE_SPEECH_KEY, AZURE_SPEECH_REGION      render the clip pack (cached by catalog version + voices)
+#   AZURE_SPEECH_KEY, AZURE_SPEECH_REGION      render the clip pack
 #   ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-#                                              release signing (debug key otherwise)
+#                                              release signing (debug key otherwise); the key
+#                                              password equals the keystore password (PKCS12)
 name: release
 
 on:
@@ -54,39 +64,102 @@ jobs:
       - name: Restore rendered clip pack
         id: restore
         uses: actions/cache/restore@v4
-        with: { path: clips, key: "${{ steps.key.outputs.key }}" }
+        with:
+          path: clips
+          key: ${{ steps.key.outputs.key }}
+          # A previous run that failed part-way saved what it had rendered.
+          restore-keys: ${{ steps.key.outputs.key }}-partial-
 
-      - name: Render clip pack with Azure (only when missing and secrets exist)
+      - name: Restore the previous release's pack (when no complete pack is cached)
+        env:
+          CATALOG: ${{ steps.key.outputs.catalog }}
+        run: |
+          if [ -f clips/index.json ] && jq -e '.complete == true' clips/index.json >/dev/null; then
+            echo "complete pack restored from cache"; exit 0
+          fi
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/clips-$CATALOG.zip"
+          if ! curl -fsSL --retry 3 -o prev.zip "$URL"; then
+            echo "no clips-$CATALOG.zip on the latest release"; exit 0
+          fi
+          rm -rf prev && mkdir prev
+          if unzip -q prev.zip -d prev \
+             && jq -e --arg c "$CATALOG" '.complete == true and .catalog_version == $c' prev/index.json >/dev/null; then
+            rm -rf clips && mv prev clips
+            echo "restored the previous release's complete pack for catalog $CATALOG"
+          else
+            echo "the previous release's clips-$CATALOG.zip is not a complete pack for catalog $CATALOG; ignoring it"
+            rm -rf prev
+          fi
+          rm -f prev.zip
+
+      - name: Render clip pack with Azure (only what is missing, and only when secrets exist)
+        id: render
         env:
           AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
           AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
         run: |
-          if [ -f clips/index.json ]; then echo "pack restored from cache"; exit 0; fi
+          if [ -f clips/index.json ] && jq -e '.complete == true' clips/index.json >/dev/null; then
+            echo "pack is complete; nothing to render"; exit 0
+          fi
           if [ -z "$AZURE_SPEECH_KEY" ] || [ -z "$AZURE_SPEECH_REGION" ]; then
             echo "Azure secrets not set; skipping render"; exit 0
           fi
-          python3 scripts/render-clips.py --out clips
+          echo "rendered=true" >> "$GITHUB_OUTPUT"   # written first: it must survive a failure below
+          # The script keeps existing clips and fetches only the missing ones, so
+          # a second pass retries just the clips that failed in the first.
+          python3 scripts/render-clips.py --out clips || python3 scripts/render-clips.py --out clips
 
-      - name: Save rendered clip pack to cache
-        if: steps.restore.outputs.cache-hit != 'true' && hashFiles('clips/index.json') != ''
+      - name: Inspect the pack
+        id: inspect
+        if: always()
+        run: |
+          if [ -f clips/index.json ]; then C=$(jq -r '.complete' clips/index.json); else C=none; fi
+          echo "complete=$C" >> "$GITHUB_OUTPUT"
+          echo "pack complete: $C"
+
+      - name: Save the complete pack to cache
+        if: steps.restore.outputs.cache-hit != 'true' && steps.inspect.outputs.complete == 'true'
         uses: actions/cache/save@v4
         with: { path: clips, key: "${{ steps.key.outputs.key }}" }
 
-      - name: Install pack into app assets (placeholder if nothing was rendered)
+      - name: Save a partial render to cache (so a failed run's clips are not rendered again)
+        # Runs even when the render step failed; the next run restores it through
+        # restore-keys and renders only what is still missing.
+        if: always() && steps.render.outputs.rendered == 'true' && steps.inspect.outputs.complete == 'false'
+        uses: actions/cache/save@v4
+        with: { path: clips, key: "${{ steps.key.outputs.key }}-partial-${{ github.run_id }}" }
+
+      - name: Install pack into app assets (placeholder if there is no complete pack)
         id: pack
         run: |
           PACK=full
-          if [ ! -f clips/index.json ]; then
-            echo "No rendered pack; using data/placeholder-clips"
+          if ! { [ -f clips/index.json ] && jq -e '.complete == true' clips/index.json >/dev/null; }; then
+            echo "No complete rendered pack; using data/placeholder-clips"
             rm -rf clips && cp -r data/placeholder-clips/clips clips && PACK=placeholder
           fi
           rm -rf app/src/main/assets/clips && mkdir -p app/src/main/assets
-          cp -r clips app/src/main/assets/clips
+          MB=$(( $(jq '.bytes' clips/index.json) / 1000000 ))
+          if [ "$PACK" = placeholder ]; then
+            cp -r clips app/src/main/assets/clips
+            BUNDLED=placeholder
+          elif [ "$MB" -le 40 ]; then
+            # docs/DESIGN.md: a pack of at most 40 MB is bundled whole.
+            python3 scripts/render-clips.py --out clips --install-assets
+            BUNDLED=whole
+          else
+            # Above 40 MB only the two highest-default-weight contrasts go into
+            # the APK; the whole pack ships as clips.zip (--install-assets writes
+            # a partial index.json with "complete": false).
+            BUNDLED=$(python3 -c "import json; cs=[c for c in json.load(open('data/catalog/catalog.json'))['contrasts'] if c.get('trainable')]; cs.sort(key=lambda c: -c['default_weight']); print(','.join(c['id'] for c in cs[:2]))")
+            python3 scripts/render-clips.py --out clips --install-assets --contrasts "$BUNDLED"
+          fi
+          test -f app/src/main/assets/clips/index.json || { echo "assets install failed"; exit 1; }
           (cd clips && zip -qr ../clips.zip .)
           cp clips.zip "clips-${{ steps.key.outputs.catalog }}.zip"
           echo "mode=$PACK" >> "$GITHUB_OUTPUT"
-          echo "files=$(find clips -type f | wc -l)" >> "$GITHUB_OUTPUT"
-          echo "mb=$(du -sm clips | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "bundled=$BUNDLED" >> "$GITHUB_OUTPUT"
+          echo "files=$(find clips -name '*.webm' -type f | wc -l)" >> "$GITHUB_OUTPUT"
+          echo "mb=$MB" >> "$GITHUB_OUTPUT"
 
       # ---- APK --------------------------------------------------------------
       - name: Build release APK
@@ -122,6 +195,7 @@ jobs:
         env:
           SIGNED: ${{ steps.apk.outputs.signed }}
           PACK: ${{ steps.pack.outputs.mode }}
+          BUNDLED: ${{ steps.pack.outputs.bundled }}
           FILES: ${{ steps.pack.outputs.files }}
           MB: ${{ steps.pack.outputs.mb }}
           CATALOG: ${{ steps.key.outputs.catalog }}
@@ -132,7 +206,17 @@ jobs:
             echo "APK: \`$(basename "$APK")\`, $(du -h "$APK" | cut -f1), sha256 \`$(sha256sum "$APK" | cut -d' ' -f1)\`."
             if [ "$SIGNED" = release ]; then echo "Signed with the release key."; else
               echo "Signed with a debug key: Android will ask to uninstall a previously installed release-signed build before installing this one."; fi
-            echo; echo "Clip pack: $PACK, $FILES files, $MB MB, catalog $CATALOG (\`clips.zip\`)."
+            echo
+            if [ "$PACK" = placeholder ]; then
+              echo "Clip pack: **PLACEHOLDER** ($FILES clips, \`\"complete\": false\`), catalog $CATALOG. No rendered pack was"
+              echo "available to this build (no Azure secrets, no cached render, no complete pack on the previous release)."
+              echo "This release is not marked latest, so the app keeps downloading the last real \`clips.zip\`;"
+              echo "do not install the placeholder \`clips.zip\` of this release by hand."
+            else
+              echo "Clip pack: full, $FILES clips, $MB MB, catalog $CATALOG (\`clips.zip\`)."
+              if [ "$BUNDLED" = whole ]; then echo "The APK bundles the whole pack."; else
+                echo "The APK bundles the contrasts $BUNDLED; the app downloads the rest from \`clips.zip\`."; fi
+            fi
             echo "Contrasts:"
             python3 -c "import json; [print('- %s (%s): %d pairs' % (c['id'], c['label'], len(c['pairs']))) for c in json.load(open('data/catalog/catalog.json'))['contrasts']]"
           } > release-notes.md
@@ -150,7 +234,8 @@ jobs:
           name: Minimal Pairs ${{ steps.notes.outputs.tag }}
           body_path: release-notes.md
           prerelease: false
-          make_latest: "true"
+          # A placeholder release must not take over releases/latest/download/clips.zip.
+          make_latest: ${{ steps.pack.outputs.mode == 'placeholder' && 'false' || 'true' }}
           files: |
             ${{ steps.apk.outputs.path }}
             clips.zip
