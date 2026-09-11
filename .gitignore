@@ -1,6 +1,7 @@
 # clip packs are never committed (rendered by scripts/render-clips.py or CI)
 /clips/
 /app/src/main/assets/clips/
+/clips*.zip
 # build outputs
 /build/
 /app/build/

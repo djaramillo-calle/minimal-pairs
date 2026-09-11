@@ -1,0 +1,27 @@
+{
+ "version": 1,
+ "catalog_version": "2026-09-11.1",
+ "format": "webm/opus 24 kHz 24 kbps mono",
+ "voices": [
+  "en-GB-SoniaNeural",
+  "en-GB-RyanNeural"
+ ],
+ "words": [
+  "beat",
+  "bit",
+  "cause",
+  "course",
+  "day",
+  "leaving",
+  "living",
+  "once",
+  "ones",
+  "they",
+  "through",
+  "true"
+ ],
+ "complete": false,
+ "contrasts": [],
+ "files": 24,
+ "bytes": 105490
+}
