@@ -67,6 +67,13 @@ sealed class TrialPhase {
     /** Clip ready; playing or waiting for the answer. */
     data object Listening : TrialPhase()
     data class Answered(val correct: Boolean, val chosen: String) : TrialPhase()
+    /**
+     * The clip could not be opened, decoded or played. Nothing is recorded for
+     * this trial; the learner can [AppViewModel.retryTrial] (decode again) or
+     * [AppViewModel.skipTrial] (draw a replacement with the same index), so one
+     * bad file never forces the whole session to be abandoned.
+     */
+    data class Failed(val message: String) : TrialPhase()
 }
 
 data class TrialUi(
@@ -83,6 +90,7 @@ data class TrialUi(
     val leftIpa: Ipa.Highlight? = null,
     val rightIpa: Ipa.Highlight? = null,
     val isLast: Boolean = false,
+    /** Non-fatal playback problem (tap-to-hear failed); the trial goes on. */
     val error: String? = null,
 )
 
@@ -146,6 +154,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var planResult = DataFolder.PlanResult(null, null)
     private var effective: EffectivePlan? = null
     private var folderStatus: DataFolder.Status = DataFolder.Status.NotChosen
+    /** Set once [bootstrap] has run (successfully or not); [onResume] does nothing before that. */
+    private var bootstrapped = false
 
     // Session runtime.
     private var scheduler: SessionScheduler? = null
@@ -183,7 +193,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             _home.value = _home.value.copy(loading = false, lastError = e.message ?: e.javaClass.simpleName)
         } finally {
+            bootstrapped = true
             recompute()
+        }
+    }
+
+    /**
+     * The activity came to the foreground: re-read `plan.json` (DriveSync may
+     * have delivered a new one, or a half-synced read at launch may have
+     * failed), republish never-published sessions and refresh the status.
+     * Skipped during a session: the running scheduler keeps its plan.
+     */
+    fun onResume() {
+        val cat = catalog ?: return
+        if (!bootstrapped || _screen.value == Screen.TRIAL) return
+        viewModelScope.launch {
+            syncFolder(cat)
+            if (_screen.value != Screen.TRIAL) recompute()
         }
     }
 
@@ -229,7 +255,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             packWordsTotal = catalogWords.size,
             packComplete = catalogWords.isNotEmpty() && available == catalogWords.size,
             packEmpty = merged.isEmpty || merged.words.isEmpty(),
-            canDownload = merged.downloaded == null && !downloader.state.value.isRunning,
+            // Offer the download until a pack that says `complete: true` is installed
+            // (a placeholder pack downloaded by an older build must not hide the button).
+            canDownload = merged.downloaded?.complete != true && !downloader.state.value.isRunning,
             schedulerError = schedulerError,
             planMessage = planResult.message,
             lastError = _home.value.lastError,
@@ -298,7 +326,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startDownload() {
         downloader.reset()
-        downloader.start(viewModelScope)
+        val cat = catalog
+        downloader.start(viewModelScope, cat?.version ?: "", cat?.allTrainableWords() ?: emptySet())
         recompute()
     }
 
@@ -313,7 +342,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun republish() {
         viewModelScope.launch {
-            val n = folder.republishMissingSessions()
+            val n = folder.republishMissingSessions(force = true)
             folderStatus = folder.status()
             recompute()
             _settings.value = _settings.value.copy(message = if (n == null) "republish:unavailable" else "republish:$n")
@@ -332,12 +361,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun startSession() {
         if (sessionJob?.isActive == true) return
         val cat = catalog ?: return
-        val plan = effective ?: return
+        if (effective == null) return
         sessionJob = viewModelScope.launch {
             _summary.value = null
             _trial.value = null
             _screen.value = Screen.TRIAL
+            // A plan.json that DriveSync delivered while the process was alive (or that was
+            // half-synced at launch) must drive this session: re-read it now, off the main thread.
+            planResult = folder.readPlan()
             val merged = pack.index.value
+            val plan = effectivePlan(planResult.plan, cat, merged.voices, prefs.override)
+            effective = plan
             val sch = try {
                 withContext(Dispatchers.Default) { SessionScheduler(cat, plan, state, merged.words, Random) }
             } catch (e: IllegalStateException) {
@@ -403,13 +437,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _trial.value = _trial.value?.copy(error = e.message ?: e.javaClass.simpleName)
+            failTrial(e)
             return
         }
         currentLoaded = loaded
         _trial.value = _trial.value?.copy(phase = TrialPhase.Listening)
         // Auto-play once the clip is ready; this play is the reaction-time reference.
-        firstPlayAt = player.play(loaded)
+        try {
+            firstPlayAt = player.play(loaded)
+        } catch (e: IllegalStateException) {
+            failTrial(e)
+        }
+    }
+
+    /** The current trial cannot be played: offer Retry / Skip instead of a dead end. */
+    private fun failTrial(e: Exception) {
+        currentLoaded = null
+        firstPlayAt = null
+        _trial.value = _trial.value?.copy(phase = TrialPhase.Failed(e.message ?: e.javaClass.simpleName))
+    }
+
+    /** Decode the failed trial's clip again (a failed decode is not cached, see [ClipCache]). */
+    fun retryTrial() {
+        val t = current ?: return
+        val ui = _trial.value ?: return
+        if (ui.phase !is TrialPhase.Failed) return
+        if (sessionJob?.isActive == true) return
+        sessionJob = viewModelScope.launch { showTrial(t, prefetchOf(t)) }
+    }
+
+    /**
+     * Replace the failed trial with a fresh draw at the same index. Nothing is
+     * recorded for the failed one, so the session record stays 1..N. The
+     * scheduler keeps the failed draw in its running tallies (untrained ratio,
+     * pair cycle), a bias of one trial that is preferable to losing the session.
+     */
+    fun skipTrial() {
+        val t = current ?: return
+        val sch = scheduler ?: return
+        val ui = _trial.value ?: return
+        if (ui.phase !is TrialPhase.Failed) return
+        if (sessionJob?.isActive == true) return
+        sessionJob = viewModelScope.launch {
+            val n = sch.next(t.index)
+            showTrial(n, prefetchOf(n))
+        }
     }
 
     /** The big button: first play (if auto-play failed) or a replay of the same clip. */
@@ -417,7 +489,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val loaded = currentLoaded ?: return
         val ui = _trial.value ?: return
         if (ui.phase !is TrialPhase.Listening) return
-        val at = player.play(loaded)
+        val at = try {
+            player.play(loaded)
+        } catch (e: IllegalStateException) {
+            failTrial(e)
+            return
+        }
         if (firstPlayAt == null) firstPlayAt = at
         else {
             replays++
@@ -485,12 +562,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** The activity went to the background: stop ducking other apps (the next play re-takes focus). */
+    fun onBackground() = player.abandonFocus()
+
     fun abandonSession() {
         autoAdvance?.cancel()
         sessionJob?.cancel()
         sessionJob = null
         cache?.releaseAll()
         cache = null
+        player.abandonFocus()
         scheduler = null
         current = null
         currentLoaded = null
@@ -503,8 +584,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun finishSession() {
         val sch = scheduler ?: return
         val cat = catalog ?: return
-        val began = started ?: Instant.now()
-        val ended = Instant.now()
+        // Bump `started` past any mirror session with the same second (wall clock stepped back),
+        // so this session gets its own file instead of being dropped as "already there".
+        val began = folder.freeSessionStart(started ?: Instant.now())
+        val ended = maxOf(Instant.now(), began)
+
         val record = RecordBuilder.build(
             started = began,
             ended = ended,
@@ -548,6 +632,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
         cache?.releaseAll()
         cache = null
+        player.abandonFocus()
         scheduler = null
         current = null
         currentLoaded = null
@@ -559,6 +644,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         cache?.releaseAll()
         cache = null
+        player.abandonFocus()
         super.onCleared()
     }
 

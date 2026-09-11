@@ -3,6 +3,8 @@ package com.djaramillo.minimalpairs.domain
 import com.djaramillo.minimalpairs.domain.model.TrialRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+
 import org.junit.Test
 import java.time.Instant
 
@@ -37,7 +39,7 @@ class RecordBuilderTest {
         assertEquals(0.75, s.pct, 1e-9)
         assertEquals(2, s.untrainedTrials)
         assertEquals(1, s.untrainedCorrect)
-        assertEquals(0.5, s.untrainedPct, 1e-9)
+        assertEquals(0.5, s.untrainedPct!!, 1e-9)
         assertEquals(197, s.durationS)
         assertEquals(1250, s.meanRtMs)
         assertEquals(3, s.untrainedShortfall)
@@ -58,11 +60,26 @@ class RecordBuilderTest {
         val rec = RecordBuilder.build(now, now, "0.1.0", "v", "default", null, emptyList(), emptyList(), 0)
         assertEquals(0, rec.summary.trials)
         assertEquals(0.0, rec.summary.pct, 1e-9)
-        assertEquals(0.0, rec.summary.untrainedPct, 1e-9)
+        // No untrained trials: the contract wants null, never "0 % on untrained words".
+        assertNull(rec.summary.untrainedPct)
         assertEquals(0, rec.summary.meanRtMs)
         assertEquals(0, rec.summary.durationS)
         assertNull(rec.planWritten)
         assertEquals(0.3333, RecordBuilder.ratio(1, 3), 1e-9)
         assertEquals(0.6667, RecordBuilder.ratio(2, 3), 1e-9)
+    }
+
+    @Test
+    fun untrainedPctIsNullWithoutUntrainedTrials() {
+        val rows = listOf(row(1, "th", true, true, 900), row(2, "s/z", false, true, 1100))
+        val now = Instant.parse("2026-09-11T07:02:11Z")
+        val rec = RecordBuilder.build(now, now.plusSeconds(30), "0.1.0", "v", "default", null, listOf("en-GB-SoniaNeural"), rows, 2)
+        assertEquals(0, rec.summary.untrainedTrials)
+        assertNull(rec.summary.untrainedPct)
+        assertEquals(0.5, rec.summary.pct, 1e-9)
+        assertEquals(2, rec.summary.untrainedShortfall)
+        val text = AppJson.writer.encodeToString(com.djaramillo.minimalpairs.domain.model.SessionRecord.serializer(), rec)
+        assertTrue(text, text.contains("\"untrained_pct\": null"))
+        assertTrue(text, text.contains("\"plan_written\": null"))
     }
 }

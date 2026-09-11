@@ -1,6 +1,8 @@
 package com.djaramillo.minimalpairs.clips
 
 import android.content.Context
+import com.djaramillo.minimalpairs.domain.AppJson
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,8 +29,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * Only ever started by an explicit tap (Settings or the Home prompt). Streams
  * to `clips.zip.part` with byte progress, unpacks into a staging directory
  * with [ZipRules] validation and a 200 MB cap, verifies `sha256.txt` when
- * present, then swaps the staging directory in as `clips/`. Cancellable at
- * every step; partial files are removed.
+ * present, checks the unpacked `index.json` with [DownloadCheck] (a placeholder
+ * or partial pack, or one covering fewer catalog words than what is installed,
+ * never replaces the current pack), then swaps the staging directory in as
+ * `clips/`. Cancellable at every step; partial files are removed.
  */
 class ClipDownloader(context: Context, private val pack: ClipPack) {
     private val app = context.applicationContext
@@ -49,12 +53,16 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
     val state: StateFlow<State> = _state
     private var job: Job? = null
 
-    /** Start the download in [scope] unless one is already running. */
-    fun start(scope: CoroutineScope) {
+    /**
+     * Start the download in [scope] unless one is already running.
+     * [catalogVersion] and [catalogWords] (the installed catalog's trainable
+     * words) are what the unpacked pack is judged against.
+     */
+    fun start(scope: CoroutineScope, catalogVersion: String, catalogWords: Set<String>) {
         if (job?.isActive == true) return
         job = scope.launch(Dispatchers.IO) {
             try {
-                run()
+                run(catalogVersion, catalogWords)
             } catch (e: CancellationException) {
                 _state.value = State.Idle
                 throw e
@@ -72,7 +80,7 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
         if (job?.isActive != true) _state.value = State.Idle
     }
 
-    private suspend fun run() {
+    private suspend fun run(catalogVersion: String, catalogWords: Set<String>) {
         val part = File(app.filesDir, "clips.zip.part")
         val staging = File(app.filesDir, "clips.staging")
         try {
@@ -86,6 +94,15 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
             _state.value = State.Verifying
             verify(staging)
             if (!File(staging, ZipRules.INDEX).isFile) throw IOException("the archive has no index.json")
+            val candidate = try {
+                AppJson.json.decodeFromString(ClipIndex.serializer(), File(staging, ZipRules.INDEX).readText())
+            } catch (e: Exception) {
+                null
+            }
+            val current = pack.index.value
+            DownloadCheck.refuse(candidate, current.bundled, current, catalogVersion, catalogWords) { v, w ->
+                File(File(staging, v), "$w.webm").let { it.isFile && it.length() > 0 }
+            }?.let { throw IOException(it) }
             // Swap in.
             val target = pack.downloadedDir
             target.deleteRecursively()

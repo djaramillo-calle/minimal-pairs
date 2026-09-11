@@ -18,7 +18,11 @@ Options:
   --note TEXT          plan.note shown on the learner's Home screen
   --trials N           plan.trials_per_session (10-120, default 40)
   --untrained-ratio F  plan.untrained_ratio (0-1, default 0.5)
-  --band a,b           plan.band, default high,mid
+  --band a,b           plan.band, default high,mid. When the recent sessions report
+                       untrained_shortfall on at least 10 % of their trials (the
+                       honest probe has run out of untrained words in the band, see
+                       docs/CONTRACT.md) the default widens to high,mid,low; an
+                       explicit --band is kept and a loud warning is printed instead.
   --feedback LEVEL     full | brief | minimal (default full)
   --voices a,b         plan.voices (default: every voice of the catalog)
   --selftest           run the built-in checks on synthetic data and exit
@@ -43,6 +47,12 @@ import tempfile
 
 FLOOR = 0.15
 SPAN = 1.0 - FLOOR
+# Share of the window's trials that were meant to be untrained but had no
+# untrained word left (summary.untrained_shortfall) above which the probe is
+# considered collapsed: widen the band (default) or warn (explicit --band).
+SHORTFALL_WARN = 0.10
+DEFAULT_BAND = ["high", "mid"]
+WIDE_BAND = ["high", "mid", "low"]
 
 # Fallback contrast list (docs/DESIGN.md, "Catalog") used only when the catalog
 # file cannot be read.
@@ -146,12 +156,16 @@ def parse_ts(s):
 
 
 def recent_misses(sessions_dir, days, now):
-    """{contrast: incorrect untrained trials} over sessions started within the window."""
+    """({contrast: incorrect untrained trials}, sessions used, shortfall, trials)
+    over sessions started within the window. shortfall is the sum of
+    summary.untrained_shortfall, trials the number of trial rows."""
     misses = {}
     if not sessions_dir or not os.path.isdir(sessions_dir):
-        return misses, 0
+        return misses, 0, 0, 0
     cutoff = now - _dt.timedelta(days=days)
     used = 0
+    shortfall = 0
+    trials_total = 0
     for name in sorted(os.listdir(sessions_dir)):
         if not name.endswith(".json"):
             continue
@@ -165,14 +179,20 @@ def recent_misses(sessions_dir, days, now):
         if not isinstance(trials, list):
             continue
         used += 1
+        summary = s.get("summary")
+        if isinstance(summary, dict):
+            sf = summary.get("untrained_shortfall", 0)
+            if isinstance(sf, int) and not isinstance(sf, bool) and sf > 0:
+                shortfall += sf
         for t in trials:
             if not isinstance(t, dict):
                 continue
+            trials_total += 1
             if t.get("trained") is False and t.get("correct") is False:
                 c = t.get("contrast")
                 if isinstance(c, str):
                     misses[c] = misses.get(c, 0) + 1
-    return misses, used
+    return misses, used, shortfall, trials_total
 
 
 def clamp(x, lo, hi):
@@ -209,15 +229,30 @@ def compute_weights(contrasts, counts, misses):
 def build_plan(args, now):
     contrasts, cat_voices = load_contrasts(args.catalog)
     counts = ledger_counts(load_json(args.ledger))
-    misses, n_sessions = recent_misses(args.sessions, args.days, now)
+    misses, n_sessions, shortfall, trials_total = recent_misses(args.sessions, args.days, now)
     weights, scores, used_defaults = compute_weights(contrasts, counts, misses)
 
-    band = [b.strip() for b in (args.band or "high,mid").split(",") if b.strip()]
+    band_given = bool(args.band and args.band.strip())
+    band = [b.strip() for b in (args.band or ",".join(DEFAULT_BAND)).split(",") if b.strip()]
     bad = [b for b in band if b not in BANDS]
     if bad:
         raise SystemExit("--band: unknown band(s) %s (allowed: %s)" % (", ".join(bad), ", ".join(BANDS)))
     if not band:
-        band = ["high", "mid"]
+        band = list(DEFAULT_BAND)
+    shortfall_ratio = (float(shortfall) / trials_total) if trials_total else 0.0
+    band_widened = False
+    if shortfall_ratio >= SHORTFALL_WARN:
+        if band_given or "low" in band:
+            warn("WARNING: %d of %d recent trials (%.0f%%) could not use an untrained word "
+                 "(untrained_shortfall); the honest probe is running dry in band %s. "
+                 "Widen --band (add low) or lower --untrained-ratio."
+                 % (shortfall, trials_total, 100 * shortfall_ratio, ",".join(band)))
+        else:
+            band = list(WIDE_BAND)
+            band_widened = True
+            warn("WARNING: %d of %d recent trials (%.0f%%) could not use an untrained word "
+                 "(untrained_shortfall); widening plan.band to %s. Pass --band to keep it narrower."
+                 % (shortfall, trials_total, 100 * shortfall_ratio, ",".join(band)))
     if args.feedback not in FEEDBACK:
         raise SystemExit("--feedback must be one of %s" % ", ".join(FEEDBACK))
     voices = [v.strip() for v in args.voices.split(",") if v.strip()] if args.voices else list(cat_voices)
@@ -240,6 +275,8 @@ def build_plan(args, now):
         "scores": scores, "counts": counts, "misses": misses,
         "sessions_used": n_sessions, "used_defaults": used_defaults,
         "contrasts": contrasts,
+        "shortfall": shortfall, "trials": trials_total, "shortfall_ratio": shortfall_ratio,
+        "band_widened": band_widened,
     }
     return plan, info
 
@@ -253,9 +290,13 @@ def print_table(plan, info, out=sys.stderr):
             "  (production only)" if po else ""), file=out)
     if info["used_defaults"]:
         print("no evidence in ledger or recent sessions: catalog default weights", file=out)
-    print("sessions in window: %d; trials %d, untrained_ratio %s, band %s, feedback %s" % (
+    print("sessions in window: %d; trials %d, untrained_ratio %s, band %s%s, feedback %s" % (
         info["sessions_used"], plan["trials_per_session"], plan["untrained_ratio"],
-        ",".join(plan["band"]), plan["feedback"]), file=out)
+        ",".join(plan["band"]), " (widened: probe shortfall)" if info["band_widened"] else "",
+        plan["feedback"]), file=out)
+    if info["trials"]:
+        print("untrained shortfall in window: %d of %d trials (%.0f%%)" % (
+            info["shortfall"], info["trials"], 100 * info["shortfall_ratio"]), file=out)
 
 
 def write_plan(plan, path):
@@ -270,7 +311,7 @@ def write_plan(plan, path):
 
 # ----------------------------------------------------------------- selftest
 
-def _session(sid, started, rows):
+def _session(sid, started, rows, shortfall=0):
     trials = []
     for i, (contrast, trained, correct) in enumerate(rows, 1):
         trials.append({
@@ -287,7 +328,7 @@ def _session(sid, started, rows):
         "plan_written": None, "voices": ["en-GB-SoniaNeural"], "trials": trials,
         "summary": {"trials": n, "correct": c, "pct": c / n if n else 0.0,
                     "untrained_trials": 0, "untrained_correct": 0, "untrained_pct": None,
-                    "duration_s": 60, "mean_rt_ms": 900, "untrained_shortfall": 0,
+                    "duration_s": 60, "mean_rt_ms": 900, "untrained_shortfall": shortfall,
                     "contrasts": {}},
     }
 
@@ -355,6 +396,7 @@ def selftest():
         assert back["written"] == "2026-09-11T12:00:00Z"
         assert back["note"] == "selftest" and back["trials_per_session"] == 30
         assert back["untrained_ratio"] == 0.4 and back["band"] == ["high", "mid"]
+        assert info["shortfall"] == 0 and info["trials"] == 9 and not info["band_widened"]
         assert back["feedback"] == "brief"
         assert back["voices"] == ["en-GB-SoniaNeural", "en-GB-RyanNeural"]
         assert sorted(os.listdir(tmp)) == ["ledger.json", "plan.json", "sessions"]
@@ -384,6 +426,28 @@ def selftest():
         args4 = parse_args(["--out", out, "--trials", "500", "--untrained-ratio", "3"])
         plan4, _ = build_plan(args4, now)
         assert plan4["trials_per_session"] == 120 and plan4["untrained_ratio"] == 1.0
+        assert plan4["band"] == ["high", "mid"]
+
+        # the honest probe ran dry: untrained_shortfall on >= 10 % of the window's
+        # trials widens the default band; an explicit --band is kept (with a warning)
+        dry = os.path.join(tmp, "dry")
+        os.makedirs(dry)
+        dry_rows = [("th", True, True)] * 10
+        for sid, started, sf in [("20260909T070000Z", "2026-09-09T07:00:00Z", 3),
+                                 ("20260910T070000Z", "2026-09-10T07:00:00Z", 0),
+                                 ("20260801T070000Z", "2026-08-01T07:00:00Z", 10)]:   # old: ignored
+            with open(os.path.join(dry, sid + ".json"), "w", encoding="utf-8") as f:
+                json.dump(_session(sid, started, dry_rows, shortfall=sf), f)
+        plan5, info5 = build_plan(parse_args(["--out", out, "--sessions", dry]), now)
+        assert info5["shortfall"] == 3 and info5["trials"] == 20, info5
+        assert info5["band_widened"] and plan5["band"] == ["high", "mid", "low"], plan5["band"]
+        plan6, info6 = build_plan(parse_args(["--out", out, "--sessions", dry, "--band", "high"]), now)
+        assert not info6["band_widened"] and plan6["band"] == ["high"], plan6["band"]
+        # below the threshold nothing changes
+        with open(os.path.join(dry, "20260909T070000Z.json"), "w", encoding="utf-8") as f:
+            json.dump(_session("20260909T070000Z", "2026-09-09T07:00:00Z", dry_rows, shortfall=1), f)
+        plan7, info7 = build_plan(parse_args(["--out", out, "--sessions", dry]), now)
+        assert not info7["band_widened"] and plan7["band"] == ["high", "mid"], plan7["band"]
     print("plan-from-ledger selftest: OK", file=sys.stderr)
 
 
@@ -397,7 +461,8 @@ def parse_args(argv):
     p.add_argument("--note", default="")
     p.add_argument("--trials", type=int, default=40)
     p.add_argument("--untrained-ratio", type=float, default=0.5)
-    p.add_argument("--band", default="high,mid")
+    p.add_argument("--band", default=None, help="default high,mid (high,mid,low when the probe ran dry)")
+
     p.add_argument("--feedback", default="full", choices=FEEDBACK)
     p.add_argument("--voices")
     p.add_argument("--selftest", action="store_true")

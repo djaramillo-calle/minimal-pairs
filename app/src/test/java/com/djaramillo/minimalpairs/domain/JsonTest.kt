@@ -172,10 +172,39 @@ class JsonTest {
         )
         assertEquals("1210", firstRow.getValue("rt_ms").toString())
 
-        // plan_written omitted when null
+        // The reader config omits a null plan_written; the reader accepts the absent key as null.
         val noPlan = json.encodeToString(rec.copy(planWritten = null))
         assertFalse(noPlan.contains("plan_written"))
         assertNull(json.decodeFromString<SessionRecord>(noPlan).planWritten)
+    }
+
+    @Test
+    fun writerEmitsEveryNullableContractKey() {
+        // scripts/validate-contract.py requires the nullable keys to be present ("plan_written": null),
+        // so the folder files are written with explicitNulls = true.
+        val rec = SessionRecord(
+            id = "20260911T070211Z", started = "2026-09-11T07:02:11Z", ended = "2026-09-11T07:05:28Z",
+            appVersion = "0.1.0", catalogVersion = "2026-09-11.1", planSource = "default", planWritten = null,
+            voices = listOf("en-GB-SoniaNeural"),
+            trials = listOf(TrialRow(1, "th", "th:think-sink", "think", "sink", "think", true, "en-GB-SoniaNeural", 900, 0, true, "high", "initial")),
+            summary = Summary(1, 1, 1.0, 0, 0, null, 197, 900, 1, mapOf("th" to ContrastSummary(1, 1, 0, 0, 900))),
+        )
+        val text = AppJson.writer.encodeToString(rec)
+        assertTrue(text, text.contains("\"plan_written\": null"))
+        assertTrue(text, text.contains("\"untrained_pct\": null"))
+        assertEquals(rec, json.decodeFromString<SessionRecord>(text))
+        assertEquals(rec, AppJson.writer.decodeFromString<SessionRecord>(text))
+
+        val fresh = ContrastState(trials = 3, correct = 2, wordsTrained = 1, wordsTotal = 9)
+        val st = LearnerState(updated = "2026-09-11T07:05:30Z", appVersion = "0.1.0", catalogVersion = "2026-09-11.1",
+            sessionsCompleted = 1, streakDays = 1, lastSession = "2026-09-11T07:02:11Z", planSource = "default",
+            contrasts = mapOf("th" to fresh))
+        val stText = AppJson.writer.encodeToString(st)
+        assertTrue(stText, stText.contains("\"last_untrained_pct\": null"))
+        assertTrue(stText, stText.contains("\"last_pct\": null"))
+        assertTrue(stText, stText.contains("\"mean_rt_ms\": null"))
+        assertEquals(st, json.decodeFromString<LearnerState>(stText))
+        assertTrue(stText.startsWith("{\n  \"version\": 1"))
     }
 
     @Test
@@ -191,4 +220,15 @@ class JsonTest {
         assertNull(TimeUtil.parseIso("yesterday"))
         assertNull(TimeUtil.utcDay("nope"))
     }
+
+    @Test
+    fun firstFreeSessionStartBumpsPastTakenSeconds() {
+        val t = TimeUtil.parseIso("2026-09-11T07:02:11.400Z")!!
+        assertEquals("2026-09-11T07:02:11Z", TimeUtil.formatIso(TimeUtil.firstFreeSessionStart(t) { false }))
+        val taken = setOf("20260911T070211Z", "20260911T070212Z")
+        val free = TimeUtil.firstFreeSessionStart(t) { it in taken }
+        assertEquals("20260911T070213Z", TimeUtil.sessionIdFrom(free))
+        assertEquals("2026-09-11T07:02:13Z", TimeUtil.formatIso(free))
+    }
+
 }

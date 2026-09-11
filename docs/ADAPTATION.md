@@ -76,8 +76,11 @@ the *share of trials*, never the plan file, never the targets, never the bands.
 Word exposure: `state.json.words` records every target exposure. Words are
 "trained" once exposed; the untrained probe therefore naturally moves through
 the catalog. When a contrast runs out of untrained words in the allowed bands,
-the shortfall is reported and the coach widens the band. The app does **not**
-widen it by itself.
+the shortfall is reported and the coach widens the band (the coach's
+`plan-from-ledger.py` does so automatically once the recent shortfall reaches
+10 % of trials; with the default plan this happens after roughly 15 sessions).
+The app does **not** widen it by itself.
+
 
 ## What the app never does
 

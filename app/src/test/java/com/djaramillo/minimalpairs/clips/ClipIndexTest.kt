@@ -62,3 +62,46 @@ class ClipIndexTest {
         assertEquals(setOf("bit", "dog"), m.missingWords(setOf("ship", "bit", "dog")))
     }
 }
+
+class DownloadCheckTest {
+    private val catalogWords = setOf("ship", "sheep", "bit", "beat", "cat", "cut")
+    private val voices = listOf("en-GB-SoniaNeural", "en-GB-RyanNeural")
+    private val bundled = ClipIndex(catalogVersion = "2026-09-11.1", voices = voices, words = listOf("ship", "sheep", "bit"), complete = false)
+    private val full = ClipIndex(catalogVersion = "2026-09-11.1", voices = voices, words = catalogWords.toList(), complete = true)
+    private val placeholder = ClipIndex(catalogVersion = "2026-09-11.1", voices = voices, words = listOf("ship", "cat"), complete = false)
+    private val allThere = { _: String, _: String -> true }
+
+    @Test
+    fun full_pack_over_bundled_only_is_accepted() {
+        assertNull(DownloadCheck.refuse(full, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords, allThere))
+        // Re-downloading the same full pack (repair) is fine too: coverage is equal, not smaller.
+        assertNull(DownloadCheck.refuse(full, bundled, MergedIndex(bundled, full), "2026-09-11.1", catalogWords, allThere))
+    }
+
+    @Test
+    fun placeholder_never_replaces_a_full_pack() {
+        val reason = DownloadCheck.refuse(placeholder, bundled, MergedIndex(bundled, full), "2026-09-11.1", catalogWords, allThere)
+        assertTrue(reason, reason != null && reason.contains("placeholder or partial"))
+        // Nor is it accepted when nothing is downloaded yet: complete=false is refused outright.
+        assertTrue(DownloadCheck.refuse(placeholder, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords, allThere) != null)
+        assertTrue(DownloadCheck.refuse(null, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords, allThere)!!.contains("does not parse"))
+    }
+
+    @Test
+    fun smaller_coverage_and_missing_files_are_refused() {
+        val smaller = ClipIndex(catalogVersion = "2026-09-11.1", voices = voices, words = listOf("ship", "sheep", "bit", "beat"), complete = true)
+        val r = DownloadCheck.refuse(smaller, bundled, MergedIndex(bundled, full), "2026-09-11.1", catalogWords, allThere)
+        assertTrue(r, r != null && r.contains("fewer than the installed"))
+        val missing = DownloadCheck.refuse(full, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords) { v, w -> !(v == "en-GB-RyanNeural" && w == "cut") }
+        assertTrue(missing, missing != null && missing.contains("en-GB-RyanNeural/cut.webm"))
+    }
+
+    @Test
+    fun other_catalog_version_is_fine_only_when_it_covers_this_catalog() {
+        val newer = full.copy(catalogVersion = "2026-10-01.1", words = catalogWords.toList() + "extra")
+        assertNull(DownloadCheck.refuse(newer, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords, allThere))
+        val older = full.copy(catalogVersion = "2026-08-01.1", words = listOf("ship", "sheep", "bit", "beat", "cat"))
+        val r = DownloadCheck.refuse(older, bundled, MergedIndex(bundled, null), "2026-09-11.1", catalogWords, allThere)
+        assertTrue(r, r != null && r.contains("rendered for catalog 2026-08-01.1"))
+    }
+}

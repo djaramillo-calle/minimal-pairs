@@ -10,13 +10,18 @@ warning on stderr), groups trials by the ISO week of "started" (UTC) and by
 contrast, and prints one TSV row per (week, contrast), sorted by week then
 contrast, with the header
 
-  week  contrast  untrained_pct  untrained_trials  trials  correct_pct  mean_rt_ms  sessions
+  week  contrast  untrained_pct  untrained_trials  trials  correct_pct  mean_rt_ms  sessions  week_shortfall
 
 untrained_pct is the percent correct on untrained trials (the honest probe),
 empty when there were no untrained trials. correct_pct is the percent correct
 on all trials. mean_rt_ms is the mean reaction time over all trials of the
 group. sessions is the number of session files contributing to the row.
---weeks N keeps only the N most recent ISO weeks present in the data.
+week_shortfall is the sum of summary.untrained_shortfall over every session of
+the week (trials that were meant to be untrained but had no untrained word left
+in the plan's band); it is session-level, so it repeats on each contrast row of
+the week. When it grows, widen plan.band or lower untrained_ratio
+(docs/CONTRACT.md). --weeks N keeps only the N most recent ISO weeks present
+in the data.
 
 Standard library only, Python 3.9+. File format: docs/CONTRACT.md.
 """
@@ -29,7 +34,7 @@ import sys
 import tempfile
 
 HEADER = ["week", "contrast", "untrained_pct", "untrained_trials", "trials",
-          "correct_pct", "mean_rt_ms", "sessions"]
+          "correct_pct", "mean_rt_ms", "sessions", "week_shortfall"]
 
 
 def warn(msg):
@@ -78,12 +83,17 @@ def load_sessions(sessions_dir):
 def aggregate(sessions):
     """Return {(week, contrast): stats dict} from (name, session) pairs."""
     groups = {}
+    week_shortfall = {}
     for name, s in sessions:
         started = parse_ts(s.get("started"))
         if started is None:
             warn("skipping %s: bad or missing 'started'" % name)
             continue
         week = iso_week(started)
+        summary = s.get("summary")
+        sf = summary.get("untrained_shortfall", 0) if isinstance(summary, dict) else 0
+        if isinstance(sf, int) and not isinstance(sf, bool) and sf > 0:
+            week_shortfall[week] = week_shortfall.get(week, 0) + sf
         for t in s["trials"]:
             if not isinstance(t, dict):
                 continue
@@ -105,6 +115,8 @@ def aggregate(sessions):
                 g["rt_sum"] += rt
                 g["rt_n"] += 1
             g["sessions"].add(name)
+    for (week, _c), g in groups.items():
+        g["week_shortfall"] = week_shortfall.get(week, 0)
     return groups
 
 
@@ -128,6 +140,7 @@ def rows(groups, weeks=None):
             pct(g["correct"], g["trials"]),
             "" if g["rt_n"] == 0 else str(int(round(g["rt_sum"] / g["rt_n"]))),
             str(len(g["sessions"])),
+            str(g.get("week_shortfall", 0)),
         ])
     return out
 
@@ -140,7 +153,7 @@ def write_tsv(table, fh):
 
 # ----------------------------------------------------------------- selftest
 
-def _session(sid, started, rows_, voice="en-GB-SoniaNeural"):
+def _session(sid, started, rows_, voice="en-GB-SoniaNeural", shortfall=0):
     trials = []
     for i, (contrast, trained, correct, rt) in enumerate(rows_, 1):
         trials.append({
@@ -152,25 +165,25 @@ def _session(sid, started, rows_, voice="en-GB-SoniaNeural"):
     return {"version": 1, "id": sid, "started": started, "ended": started,
             "app_version": "0.1.0", "catalog_version": "t", "plan_source": "coach",
             "plan_written": None, "voices": [voice], "trials": trials,
-            "summary": {}}
+            "summary": {"untrained_shortfall": shortfall}}
 
 
 def selftest():
     with tempfile.TemporaryDirectory() as tmp:
         data = [
-            # 2026-W37 (Mon 7 Sep .. Sun 13 Sep)
+            # 2026-W37 (Mon 7 Sep .. Sun 13 Sep); shortfall 3 + 1 for the week
             ("20260908T070000Z", "2026-09-08T07:00:00Z",
              [("th", False, True, 800), ("th", False, False, 1200), ("th", True, True, 700),
-              ("s/z", True, True, 900)]),
+              ("s/z", True, True, 900)], 3),
             ("20260913T235959Z", "2026-09-13T23:59:59Z",
-             [("th", False, True, 1000), ("s/z", True, False, 1100)]),
+             [("th", False, True, 1000), ("s/z", True, False, 1100)], 1),
             # 2026-W38 starts on Monday 14 Sep 00:00 UTC
             ("20260914T000000Z", "2026-09-14T00:00:00Z",
-             [("th", False, False, 1500), ("b/v", False, True, 600), ("b/v", True, True, 650)]),
+             [("th", False, False, 1500), ("b/v", False, True, 600), ("b/v", True, True, 650)], 0),
         ]
-        for sid, started, r in data:
+        for sid, started, r, sf in data:
             with open(os.path.join(tmp, sid + ".json"), "w", encoding="utf-8") as f:
-                json.dump(_session(sid, started, r), f)
+                json.dump(_session(sid, started, r, shortfall=sf), f)
         with open(os.path.join(tmp, "broken.json"), "w") as f:
             f.write("not json at all")
         with open(os.path.join(tmp, "notes.txt"), "w") as f:
@@ -182,11 +195,12 @@ def selftest():
         assert [(r[0], r[1]) for r in table] == [
             ("2026-W37", "s/z"), ("2026-W37", "th"), ("2026-W38", "b/v"), ("2026-W38", "th")], table
         # W37 th: 4 trials, 3 correct; untrained 3 trials 2 correct; rt (800+1200+700+1000)/4=925; 2 sessions
-        assert by[("2026-W37", "th")] == ["2026-W37", "th", "66.7", "3", "4", "75.0", "925", "2"], by
-        # W37 s/z: no untrained trials -> empty untrained_pct
-        assert by[("2026-W37", "s/z")] == ["2026-W37", "s/z", "", "0", "2", "50.0", "1000", "2"], by
-        assert by[("2026-W38", "th")] == ["2026-W38", "th", "0.0", "1", "1", "0.0", "1500", "1"], by
-        assert by[("2026-W38", "b/v")] == ["2026-W38", "b/v", "100.0", "1", "2", "100.0", "625", "1"], by
+        assert by[("2026-W37", "th")] == ["2026-W37", "th", "66.7", "3", "4", "75.0", "925", "2", "4"], by
+        # W37 s/z: no untrained trials -> empty untrained_pct; week_shortfall is week-level (3 + 1)
+        assert by[("2026-W37", "s/z")] == ["2026-W37", "s/z", "", "0", "2", "50.0", "1000", "2", "4"], by
+        assert by[("2026-W38", "th")] == ["2026-W38", "th", "0.0", "1", "1", "0.0", "1500", "1", "0"], by
+        assert by[("2026-W38", "b/v")] == ["2026-W38", "b/v", "100.0", "1", "2", "100.0", "625", "1", "0"], by
+
         # --weeks 1 keeps only the most recent week
         last = rows(groups, weeks=1)
         assert {r[0] for r in last} == {"2026-W38"} and len(last) == 2

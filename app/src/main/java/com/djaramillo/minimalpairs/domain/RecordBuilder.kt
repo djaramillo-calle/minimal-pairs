@@ -58,7 +58,8 @@ object RecordBuilder {
             pct = ratio(correct, n),
             untrainedTrials = untrained.size,
             untrainedCorrect = untrainedCorrect,
-            untrainedPct = ratio(untrainedCorrect, untrained.size),
+            untrainedPct = if (untrained.isEmpty()) null else ratio(untrainedCorrect, untrained.size),
+
             durationS = duration,
             meanRtMs = meanRt(trials),
             untrainedShortfall = untrainedShortfall,

@@ -46,7 +46,9 @@ data class Summary(
     val pct: Double,
     @SerialName("untrained_trials") val untrainedTrials: Int,
     @SerialName("untrained_correct") val untrainedCorrect: Int,
-    @SerialName("untrained_pct") val untrainedPct: Double,
+    /** Correct share of the untrained trials; `null` when the session had none (never `0.0`). */
+    @SerialName("untrained_pct") val untrainedPct: Double? = null,
+
     @SerialName("duration_s") val durationS: Int,
     @SerialName("mean_rt_ms") val meanRtMs: Int,
     @SerialName("untrained_shortfall") val untrainedShortfall: Int = 0,

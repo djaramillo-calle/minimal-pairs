@@ -20,10 +20,21 @@ Rules that never change:
 
 - The app never writes `plan.json`. The coach never writes anything else.
 - Session files are immutable once written. The app never edits, renames or
-  deletes them. The coach may archive old ones on Drive; the app does not care.
+  deletes them. The coach may archive old ones on Drive; the app does not care:
+  a session that reached the folder once is not put back when it later
+  disappears (the app keeps a private copy and remembers that it was
+  published). Only sessions that never reached the folder are republished at
+  launch; the "republish" button in Settings is the explicit way to restore
+  every missing session from the phone's private copies.
 - Every JSON file carries `"version": 1`. Readers ignore unknown keys. A file
   that fails to parse is treated as absent (the app falls back to defaults and
   shows a warning in Settings; it never crashes and never overwrites a coach file).
+  Files the app writes carry every key of their schema; a value that has no
+  meaning yet is written as `null` (`"plan_written": null`,
+  `"untrained_pct": null`), never omitted and never a stand-in `0`.
+- `plan.json` is re-read at every launch, whenever the app returns to the
+  foreground and at the start of every session, so a plan DriveSync delivers
+  while the app is open drives the next session.
 - Timestamps are UTC ISO 8601 (`2026-09-11T07:02:11Z`). File names use the
   basic form without colons (`20260911T070211Z`) because Android external
   storage and Drive reject `:` in names.
@@ -72,15 +83,16 @@ falls back to catalog defaults and the session record says `plan_source: "defaul
 
 ## `state.json` — rolling learner state (app → coach)
 
-Rewritten by the app after every completed session (and on first launch).
-Small, one object. The coach reads it; it must never write it.
+Rewritten by the app after every completed session; until the first one there
+is no `state.json` (a fresh install adopts an existing one from the folder
+instead). Small, one object. The coach reads it; it must never write it.
 
 ```json
 {
   "version": 1,
   "updated": "2026-09-11T07:05:30Z",
   "app_version": "0.1.0",
-  "catalog_version": "2026-09-11.1",
+  "catalog_version": "2026-09-11.2",
   "sessions_completed": 12,
   "streak_days": 3,
   "last_session": "2026-09-11T07:02:11Z",
@@ -109,7 +121,7 @@ Small, one object. The coach reads it; it must never write it.
 | `plan_source` | what the last session ran on: `"coach"` (a valid `plan.json`), `"default"` (no or invalid plan), `"override"` (the learner's manual override in Settings) |
 | `contrasts.<id>.trials` / `correct` | lifetime totals |
 | `untrained_trials` / `untrained_correct` | lifetime totals on trials whose target word was untrained at the time (the honest probe) |
-| `last_pct` / `last_untrained_pct` | from the most recent session that included the contrast (`null` if none) |
+| `last_pct` / `last_untrained_pct` | from the most recent session that included the contrast (`null` if none, and `last_untrained_pct` stays `null` until a session probed the contrast with an untrained word) |
 | `recent_untrained_pct` | last up-to-5 sessions' untrained percent, oldest first |
 | `mean_rt_ms` | lifetime mean reaction time (tap minus audio onset) on this contrast |
 | `words_trained` / `words_total` | trainable words of this contrast with ≥1 exposure / in the catalog |
@@ -134,7 +146,7 @@ ISO form.
   "started": "2026-09-11T07:02:11Z",
   "ended": "2026-09-11T07:05:28Z",
   "app_version": "0.1.0",
-  "catalog_version": "2026-09-11.1",
+  "catalog_version": "2026-09-11.2",
   "plan_source": "coach",
   "plan_written": "2026-09-11T18:30:00Z",
   "voices": ["en-GB-SoniaNeural", "en-GB-RyanNeural"],
@@ -173,15 +185,23 @@ Trial row fields:
 | `band` | frequency band of the target (`high`, `mid`, `low`) |
 | `position` | where the differing sound sits: `initial`, `medial`, `final` |
 
+`summary.untrained_pct` is `null` when the session had no untrained trial
+(`untrained_ratio: 0`, or every eligible word already trained); it is never
+`0.0` in that case.
+
 `summary.untrained_shortfall` counts trials that were meant to be untrained but
 no untrained word was left in the chosen contrast and band, so the scheduler
 used the least-exposed word instead. When it grows, the coach should widen
-`band` or lower `untrained_ratio`.
+`band` or lower `untrained_ratio`; `plan-from-ledger.py` does the widening by
+itself (see below) and `sessions-summary.py` shows the number per week. With
+the default `band` and weights the heavily weighted contrasts run out of
+untrained words after roughly 15 sessions (b/v has 7 high/mid pairs, j/y one),
+so this is the normal course, not an error.
 
 ## `catalog-version.txt`
 
 One line, the catalog version string bundled in the installed app
-(`2026-09-11.1`). Written on every launch. The coach uses it to know which pair
+(`2026-09-11.2`). Written on every launch. The coach uses it to know which pair
 set the state and sessions refer to; pair ids are stable across catalog versions
 as long as both words and the contrast stay the same.
 
@@ -191,9 +211,16 @@ as long as both words and the contrast stay the same.
   turns the coach's pronunciation ledger (`{"phonemes": {"<class>": {"count": n, "words": {...}}}}`)
   plus recent session files into `plan.json`: weights proportional to ledger
   counts and recent misses, with a floor so every trainable contrast keeps
-  presence. `--selftest` exercises it on synthetic data.
+  presence. When the recent sessions' `untrained_shortfall` reaches 10 % of
+  their trials it widens `band` to `high,mid,low` (unless `--band` was given,
+  in which case it warns loudly). `--selftest` exercises it on synthetic data.
 - `scripts/sessions-summary.py <sessions dir>` prints one TSV row per ISO week
   and contrast: percent correct on untrained words, trials, untrained trials,
-  mean reaction ms, sessions. `--selftest` included.
+  mean reaction ms, sessions, and the week's total `untrained_shortfall`.
+  `--selftest` included.
+- `scripts/validate-contract.py <folder> [--catalog data/catalog/catalog.json]`
+  checks a folder against this document (`data/examples/` must pass; the
+  nullable keys must be present, as the app writes them).
+
 
 Both are stdlib-only Python 3.9+, like the rest of the coaching system.

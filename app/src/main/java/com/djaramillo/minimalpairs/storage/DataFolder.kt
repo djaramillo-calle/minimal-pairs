@@ -7,6 +7,7 @@ import android.provider.DocumentsContract
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.documentfile.provider.DocumentFile
 import com.djaramillo.minimalpairs.domain.AppJson
+import com.djaramillo.minimalpairs.domain.TimeUtil
 import com.djaramillo.minimalpairs.domain.model.LearnerState
 import com.djaramillo.minimalpairs.domain.model.Plan
 import com.djaramillo.minimalpairs.domain.model.SessionRecord
@@ -22,8 +23,13 @@ import java.io.IOException
  *
  * Ownership: the mirror is the app's source of truth for `state.json`; the
  * folder holds the published copy. Session files are written once and never
- * rewritten; any mirror session missing from the folder is republished by
- * [republishMissingSessions] (idempotent, called on launch and after a session).
+ * rewritten; a mirror session that has never reached the folder is republished
+ * by [republishMissingSessions] (idempotent, called on launch and after a
+ * session). A session that did reach the folder once is marked with an empty
+ * `mirror/sessions/<id>.published` file and is not put back when it later
+ * disappears from the folder: the coach may archive sessions on Drive and the
+ * two-way mirror propagates that deletion to the phone (docs/CONTRACT.md).
+ * The Settings "republish" button forces every missing session back.
  *
  * Every public suspend function runs on [Dispatchers.IO] and never throws for
  * folder trouble: results carry a status instead.
@@ -218,15 +224,39 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     /** Write `state.json` to the mirror (tmp + rename). Throws on I/O failure: the mirror must work. */
     suspend fun writeMirrorState(state: LearnerState) = withContext(Dispatchers.IO) {
         mirrorDir.mkdirs()
-        atomicWrite(mirrorState, AppJson.json.encodeToString(LearnerState.serializer(), state))
+        atomicWrite(mirrorState, AppJson.writer.encodeToString(LearnerState.serializer(), state))
     }
 
     /** Write `sessions/<id>.json` to the mirror; never overwrites. Returns the file. */
     suspend fun writeMirrorSession(record: SessionRecord): File = withContext(Dispatchers.IO) {
         mirrorSessions.mkdirs()
         val f = File(mirrorSessions, FolderLayout.sessionFileName(record.id))
-        if (!f.exists()) atomicWrite(f, AppJson.json.encodeToString(SessionRecord.serializer(), record))
+        if (!f.exists()) atomicWrite(f, AppJson.writer.encodeToString(SessionRecord.serializer(), record))
         f
+    }
+
+    /**
+     * The first second at or after [started] with no `mirror/sessions/<id>.json`
+     * yet, so a session started in the same second as an earlier one (wall
+     * clock stepped back) gets its own file instead of being dropped.
+     */
+    suspend fun freeSessionStart(started: java.time.Instant): java.time.Instant = withContext(Dispatchers.IO) {
+        TimeUtil.firstFreeSessionStart(started) { id -> File(mirrorSessions, FolderLayout.sessionFileName(id)).exists() }
+    }
+
+    private fun publishedMarker(id: String): File = File(mirrorSessions, "$id$PUBLISHED_SUFFIX")
+
+    /** Whether `sessions/<id>.json` has reached the folder at least once. */
+    fun isPublished(id: String): Boolean = publishedMarker(id).isFile
+
+    private fun markPublished(id: String) {
+        try {
+            mirrorSessions.mkdirs()
+            val m = publishedMarker(id)
+            if (!m.exists()) m.createNewFile()
+        } catch (e: IOException) {
+            // Worst case the session is republished once more; never fail the session for this.
+        }
     }
 
     private fun atomicWrite(target: File, text: String) {
@@ -246,7 +276,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     /** `state.json` via `state.json.tmp` → delete old → rename. */
     suspend fun writeState(state: LearnerState): WriteOutcome = withContext(Dispatchers.IO) {
         val root = root() ?: return@withContext WriteOutcome.FOLDER_UNAVAILABLE
-        val text = AppJson.json.encodeToString(LearnerState.serializer(), state)
+        val text = AppJson.writer.encodeToString(LearnerState.serializer(), state)
         try {
             findChild(root, FolderLayout.STATE_TMP)?.delete()
             val tmp = root.createFile(MIME_BINARY, FolderLayout.STATE_TMP)
@@ -269,10 +299,17 @@ class DataFolder(context: Context, private val prefs: Prefs) {
         }
     }
 
-    /** `sessions/<id>.json`, created once; an existing file is left untouched. */
+    /**
+     * `sessions/<id>.json`, created once; an existing non-empty file is left
+     * untouched (an empty one, left by an earlier write that failed after
+     * `createFile`, is filled in). A successful outcome marks the session as
+     * published so [republishMissingSessions] leaves it alone from then on.
+     */
     suspend fun writeSession(record: SessionRecord): WriteOutcome = withContext(Dispatchers.IO) {
-        val text = AppJson.json.encodeToString(SessionRecord.serializer(), record)
-        writeSessionText(record.id, text)
+        val text = AppJson.writer.encodeToString(SessionRecord.serializer(), record)
+        val outcome = writeSessionText(record.id, text)
+        if (outcome == WriteOutcome.WRITTEN || outcome == WriteOutcome.ALREADY_THERE) markPublished(record.id)
+        outcome
     }
 
     private fun writeSessionText(id: String, text: String): WriteOutcome {
@@ -282,7 +319,11 @@ class DataFolder(context: Context, private val prefs: Prefs) {
                 ?: root.createDirectory(FolderLayout.SESSIONS)
                 ?: return WriteOutcome.FAILED
             val name = FolderLayout.sessionFileName(id)
-            if (findChild(dir, name) != null) return WriteOutcome.ALREADY_THERE
+            val existing = findChild(dir, name)
+            if (existing != null) {
+                if (!isEmptyFile(existing)) return WriteOutcome.ALREADY_THERE
+                return if (writeText(existing.uri, text)) WriteOutcome.WRITTEN else WriteOutcome.FAILED
+            }
             val file = dir.createFile(MIME_BINARY, name) ?: return WriteOutcome.FAILED
             if (writeText(file.uri, text)) WriteOutcome.WRITTEN else { file.delete(); WriteOutcome.FAILED }
         } catch (e: Exception) {
@@ -313,28 +354,38 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     }
 
     /**
-     * Copy every `mirror/sessions/<id>.json` that the folder's `sessions/`
-     * lacks. Idempotent. Returns how many were published now, or null when the
-     * folder is unavailable.
+     * Copy every `mirror/sessions/<id>.json` that has never reached the folder
+     * (no `.published` marker) and is absent from — or empty in — the folder's
+     * `sessions/`. With [force] every mirror session missing from the folder is
+     * copied, published before or not (the Settings button). Idempotent.
+     * Returns how many were published now, or null when the folder is unavailable.
      */
-    suspend fun republishMissingSessions(): Int? = withContext(Dispatchers.IO) {
+    suspend fun republishMissingSessions(force: Boolean = false): Int? = withContext(Dispatchers.IO) {
         val local = mirrorSessions.listFiles { f -> f.isFile && FolderLayout.sessionIdFromFileName(f.name) != null }
             ?.sortedBy { it.name } ?: emptyList()
-        if (local.isEmpty()) return@withContext 0
+        val candidates = if (force) local else local.filter { !isPublished(FolderLayout.sessionIdFromFileName(it.name)!!) }
+        if (candidates.isEmpty()) return@withContext 0
         val root = root() ?: return@withContext null
         val dir = try {
             findChild(root, FolderLayout.SESSIONS)?.takeIf { it.isDirectory }
                 ?: root.createDirectory(FolderLayout.SESSIONS)
         } catch (e: Exception) { null } ?: return@withContext null
         val present = try {
-            dir.listFiles().mapNotNull { it.name }.toHashSet()
+            dir.listFiles().filter { it.name != null }.associateBy { it.name!! }
         } catch (e: Exception) { return@withContext null }
         var published = 0
-        for (f in local) {
-            if (f.name in present) continue
+        for (f in candidates) {
+            val id = FolderLayout.sessionIdFromFileName(f.name) ?: continue
+            val existing = present[f.name]
+            if (existing != null && !isEmptyFile(existing)) { markPublished(id); continue }
             val text = try { f.readText() } catch (e: IOException) { continue }
+            if (existing != null) {
+                // Zero-length leftover of a failed write: fill it in rather than leave it unparsable.
+                if (writeText(existing.uri, text)) { published++; markPublished(id) }
+                continue
+            }
             val file = try { dir.createFile(MIME_BINARY, f.name) } catch (e: Exception) { null } ?: continue
-            if (writeText(file.uri, text)) published++ else file.delete()
+            if (writeText(file.uri, text)) { published++; markPublished(id) } else file.delete()
         }
         published
     }
@@ -364,8 +415,15 @@ class DataFolder(context: Context, private val prefs: Prefs) {
 
     private fun safeExists(doc: DocumentFile): Boolean = try { doc.exists() } catch (e: Exception) { false }
 
+    /** A zero-length document (a `createFile` whose content write failed) counts as missing. */
+    private fun isEmptyFile(doc: DocumentFile): Boolean = try { doc.length() == 0L } catch (e: Exception) { false }
+
     companion object {
         const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
+
+        /** `mirror/sessions/<id>.published`: empty marker, the session reached the folder once. */
+        const val PUBLISHED_SUFFIX = ".published"
+
 
         /**
          * `application/octet-stream` keeps the display name exactly as given:

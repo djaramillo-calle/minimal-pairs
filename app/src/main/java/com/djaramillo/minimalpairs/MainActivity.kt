@@ -10,6 +10,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.djaramillo.minimalpairs.audio.Player
@@ -44,6 +46,11 @@ class MainActivity : ComponentActivity() {
 private fun App(vm: AppViewModel = viewModel()) {
     val screen by vm.screen.collectAsStateWithLifecycle()
     val download by vm.downloadState.collectAsStateWithLifecycle()
+    // Give audio focus back while the app is in the background so other apps stop ducking.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onBackground() }
+    // Coming back to the foreground: pick up a plan.json that arrived meanwhile (docs/CONTRACT.md).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
+
     when (screen) {
         Screen.HOME -> {
             val home by vm.home.collectAsStateWithLifecycle()
@@ -63,6 +70,8 @@ private fun App(vm: AppViewModel = viewModel()) {
                 onAnswer = vm::onAnswer,
                 onHear = vm::onHearWord,
                 onNext = vm::onNext,
+                onRetry = vm::retryTrial,
+                onSkip = vm::skipTrial,
                 onAbandon = vm::abandonSession,
             )
         }

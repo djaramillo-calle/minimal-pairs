@@ -69,3 +69,50 @@ data class MergedIndex(
     /** Catalog words that are not available in every voice. */
     fun missingWords(catalogWords: Set<String>): Set<String> = catalogWords.filterTo(LinkedHashSet()) { it !in words }
 }
+
+/**
+ * Whether a freshly unpacked `clips.zip` may replace the downloaded pack. Pure
+ * so it is unit tested; [ClipDownloader] asks after the checksum step and
+ * before the swap. Without this, the placeholder `clips.zip` that CI publishes
+ * when no Azure secrets are set (12 words, `complete: false`) would replace a
+ * full pack that was downloaded earlier.
+ */
+object DownloadCheck {
+    /**
+     * Null when [candidate] is acceptable, else the reason to refuse it (shown
+     * as the download failure). Refused: an unparsable index, a pack that says
+     * `complete: false`, one that covers fewer catalog words than what is
+     * installed now ([current] = bundled + downloaded), one rendered for another
+     * catalog version that does not cover this catalog, and one whose listed
+     * clips are not all in the archive.
+     */
+    fun refuse(
+        candidate: ClipIndex?,
+        bundled: ClipIndex?,
+        current: MergedIndex,
+        catalogVersion: String,
+        catalogWords: Set<String>,
+        fileExists: (voice: String, word: String) -> Boolean,
+    ): String? {
+        if (candidate == null) return "the archive's index.json does not parse; keeping the current pack"
+        if (!candidate.complete) {
+            return "the release carries a placeholder or partial pack (${candidate.words.size} words, complete = false); keeping the current pack"
+        }
+        val merged = MergedIndex(bundled, candidate)
+        val now = current.words.count { it in catalogWords }
+        val then = merged.words.count { it in catalogWords }
+        if (then < now) {
+            return "the pack covers $then of ${catalogWords.size} catalog words, fewer than the installed $now; keeping the current pack"
+        }
+        if (candidate.catalogVersion != catalogVersion && then < catalogWords.size) {
+            return "the pack was rendered for catalog ${candidate.catalogVersion}, this app has $catalogVersion, " +
+                "and it lacks ${catalogWords.size - then} of its words; keeping the current pack"
+        }
+        for (v in candidate.voices) {
+            for (w in candidate.words) {
+                if (!fileExists(v, w)) return "index.json lists $v/$w.webm but the archive has no such file; keeping the current pack"
+            }
+        }
+        return null
+    }
+}

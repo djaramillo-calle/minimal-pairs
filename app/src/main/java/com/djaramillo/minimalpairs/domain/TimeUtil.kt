@@ -37,6 +37,20 @@ object TimeUtil {
     /** Session id / file name stem: `20260911T070211Z`. */
     fun sessionIdFrom(instant: Instant): String = BASIC_SECONDS.format(instant.truncatedTo(ChronoUnit.SECONDS))
 
+    /**
+     * The first second at or after [started] whose session id is not [taken].
+     * Two sessions can only share a `started` second when the wall clock
+     * stepped backwards; bumping keeps `id` and `started` consistent and the
+     * second session's file distinct instead of silently dropped.
+     */
+    fun firstFreeSessionStart(started: Instant, taken: (String) -> Boolean): Instant {
+        var t = started.truncatedTo(ChronoUnit.SECONDS)
+        var guard = 0
+        while (taken(sessionIdFrom(t)) && guard++ < 100_000) t = t.plusSeconds(1)
+        return t
+    }
+
+
     /** The UTC calendar day of [instant], used for the streak. */
     fun utcDay(instant: Instant): LocalDate = instant.atOffset(ZoneOffset.UTC).toLocalDate()
 
