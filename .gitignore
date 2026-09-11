@@ -1,0 +1,29 @@
+# clip packs are never committed (rendered by scripts/render-clips.py or CI)
+/clips/
+/app/src/main/assets/clips/
+# build outputs
+/build/
+/app/build/
+/.gradle/
+/.kotlin/
+/local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+# keystores and secrets
+*.jks
+*.keystore
+*.p12
+.env
+.env.*
+# python
+.venv*/
+__pycache__/
+*.pyc
+# editors
+.idea/
+*.iml
+.DS_Store
+# scratch
+/tmp/
