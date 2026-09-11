@@ -120,6 +120,8 @@
     <string name="settings_pack_done">Downloaded %1$d files (%2$s)</string>
     <string name="settings_pack_failed">Download failed: %1$s</string>
     <string name="settings_pack_source">Source: %1$s</string>
+    <string name="settings_pack_import">Import clips.zip…</string>
+    <string name="settings_pack_import_hint">Import installs a clips.zip already on the phone (for example from the Releases page or Drive) with the same checks as a download.</string>
 
     <string name="settings_versions">Versions</string>
     <string name="settings_app_version">App %1$s</string>

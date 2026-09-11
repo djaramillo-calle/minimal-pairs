@@ -331,6 +331,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         recompute()
     }
 
+    /** Settings → "Import clips.zip": install a pack the user picked with the file picker. */
+    fun importPack(uri: android.net.Uri) {
+        downloader.reset()
+        val cat = catalog
+        downloader.startFromUri(viewModelScope, uri, cat?.version ?: "", cat?.allTrainableWords() ?: emptySet())
+        recompute()
+    }
+
     fun cancelDownload() = downloader.cancel()
 
     fun deleteDownloaded() {

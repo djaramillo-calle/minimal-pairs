@@ -105,3 +105,28 @@ class DownloadCheckTest {
         assertTrue(r, r != null && r.contains("rendered for catalog 2026-08-01.1"))
     }
 }
+
+class ReleaseAssetsTest {
+    @org.junit.Test
+    fun picksTheNewestNonDraftReleaseWithAClipsZip() {
+        val listing = """
+        [
+          {"tag_name": "v0.1.0-build.9", "draft": true,
+           "assets": [{"name": "clips.zip", "browser_download_url": "https://github.com/x/y/releases/download/v9/clips.zip"}]},
+          {"tag_name": "v0.1.0-build.8", "draft": false, "assets": [{"name": "minimal-pairs-0.1.0.apk", "browser_download_url": "https://github.com/x/y/releases/download/v8/a.apk"}]},
+          {"tag_name": "v0.1.0-build.7", "draft": false,
+           "assets": [{"name": "clips-2026-09-11.2.zip", "browser_download_url": "https://github.com/x/y/releases/download/v7/clips-2026-09-11.2.zip"},
+                      {"name": "clips.zip", "browser_download_url": "https://github.com/x/y/releases/download/v7/clips.zip"}]},
+          {"tag_name": "v0.1.0-build.6", "draft": false, "assets": [{"name": "clips.zip", "browser_download_url": "https://github.com/x/y/releases/download/v6/clips.zip"}]}
+        ]
+        """
+        org.junit.Assert.assertEquals("https://github.com/x/y/releases/download/v7/clips.zip", ReleaseAssets.pickClipsZip(listing))
+    }
+
+    @org.junit.Test
+    fun returnsNullWithoutAPackOrOnGarbage() {
+        org.junit.Assert.assertNull(ReleaseAssets.pickClipsZip("""[{"tag_name":"v1","draft":false,"assets":[]}]"""))
+        org.junit.Assert.assertNull(ReleaseAssets.pickClipsZip("not json"))
+        org.junit.Assert.assertNull(ReleaseAssets.pickClipsZip("""[{"assets":[{"name":"clips.zip","browser_download_url":"http://insecure/clips.zip"}]}]"""))
+    }
+}

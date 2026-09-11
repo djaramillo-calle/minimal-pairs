@@ -2,6 +2,7 @@ package com.djaramillo.minimalpairs.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,6 +55,7 @@ fun SettingsScreen(
     onForgetFolder: () -> Unit,
     onOverride: (Override) -> Unit,
     onDownload: () -> Unit,
+    onImportPack: (android.net.Uri) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteDownloaded: () -> Unit,
     onRepublish: () -> Unit,
@@ -84,7 +86,7 @@ fun SettingsScreen(
             FolderSection(ui, onChoose = { picker.launch(Unit) }, onForget = onForgetFolder, onRepublish = onRepublish)
             PlanSection(ui)
             OverrideSection(ui, onOverride)
-            PackSection(ui, download, onDownload, onCancelDownload, onDeleteDownloaded)
+            PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded)
             SectionCard(stringResource(R.string.settings_versions)) {
                 Text(stringResource(R.string.settings_app_version, ui.appVersion))
                 Text(stringResource(R.string.settings_catalog_version, ui.catalogVersion))
@@ -237,9 +239,14 @@ private fun PackSection(
     ui: SettingsUi,
     download: ClipDownloader.State,
     onDownload: () -> Unit,
+    onImport: (android.net.Uri) -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    // The system file picker; a clips.zip copied to the phone (Downloads, Drive) installs like a download.
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onImport(uri)
+    }
     SectionCard(stringResource(R.string.settings_pack)) {
         Text(stringResource(R.string.settings_pack_bundled, packDesc(ui.pack.bundled)))
         Text(stringResource(R.string.settings_pack_downloaded, packDesc(ui.pack.downloaded)))
@@ -287,6 +294,10 @@ private fun PackSection(
                 OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_cancel)) }
             } else {
                 Button(onClick = onDownload, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_download)) }
+                OutlinedButton(
+                    onClick = { importPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                    modifier = Modifier.height(48.dp),
+                ) { Text(stringResource(R.string.settings_pack_import)) }
                 if (ui.pack.downloaded != null) {
                     TextButton(onClick = onDelete, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_pack_delete)) }
                 }
@@ -294,6 +305,11 @@ private fun PackSection(
         }
         Text(
             stringResource(R.string.settings_pack_source, ClipDownloader.RELEASE_URL),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.settings_pack_import_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -1,6 +1,8 @@
 package com.djaramillo.minimalpairs.clips
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import com.djaramillo.minimalpairs.domain.AppJson
 
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +23,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -58,11 +64,27 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
      * [catalogVersion] and [catalogWords] (the installed catalog's trainable
      * words) are what the unpacked pack is judged against.
      */
-    fun start(scope: CoroutineScope, catalogVersion: String, catalogWords: Set<String>) {
+    fun start(scope: CoroutineScope, catalogVersion: String, catalogWords: Set<String>) =
+        launch(scope, catalogVersion, catalogWords) { part -> download(part) }
+
+    /**
+     * Install a `clips.zip` the user picked with the system file picker
+     * (Settings → "Import clips.zip"). Same validation and swap as a download;
+     * the only difference is where the bytes come from.
+     */
+    fun startFromUri(scope: CoroutineScope, uri: Uri, catalogVersion: String, catalogWords: Set<String>) =
+        launch(scope, catalogVersion, catalogWords) { part -> copyFromUri(uri, part) }
+
+    private fun launch(
+        scope: CoroutineScope,
+        catalogVersion: String,
+        catalogWords: Set<String>,
+        source: suspend (File) -> Unit,
+    ) {
         if (job?.isActive == true) return
         job = scope.launch(Dispatchers.IO) {
             try {
-                run(catalogVersion, catalogWords)
+                run(catalogVersion, catalogWords, source)
             } catch (e: CancellationException) {
                 _state.value = State.Idle
                 throw e
@@ -80,12 +102,12 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
         if (job?.isActive != true) _state.value = State.Idle
     }
 
-    private suspend fun run(catalogVersion: String, catalogWords: Set<String>) {
+    private suspend fun run(catalogVersion: String, catalogWords: Set<String>, source: suspend (File) -> Unit) {
         val part = File(app.filesDir, "clips.zip.part")
         val staging = File(app.filesDir, "clips.staging")
         try {
             _state.value = State.Downloading(0, null)
-            download(part)
+            source(part)
             staging.deleteRecursively()
             staging.mkdirs()
             _state.value = State.Unpacking(0)
@@ -119,7 +141,38 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
     }
 
     private suspend fun download(part: File) {
-        var url = URL(RELEASE_URL)
+        try {
+            download(part, URL(RELEASE_URL))
+        } catch (e: NotFound) {
+            // The latest release carries no pack (a build made without Azure
+            // secrets attaches none). Fall back to the newest release that has one.
+            val url = newestPackUrl() ?: throw IOException(
+                "no clip pack has been published on GitHub yet (the latest release has no clips.zip)",
+            )
+            download(part, URL(url))
+        }
+    }
+
+    private class NotFound(host: String) : IOException("HTTP 404 from $host")
+
+    /** GitHub REST listing of recent releases → the first `clips.zip` asset URL, or null. */
+    private suspend fun newestPackUrl(): String? {
+        val c = URL(RELEASES_API).openConnection() as HttpURLConnection
+        c.connectTimeout = 20_000
+        c.readTimeout = 30_000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", "minimal-pairs-android")
+        try {
+            if (c.responseCode != HttpURLConnection.HTTP_OK) return null
+            val body = c.inputStream.bufferedReader().use { it.readText() }
+            return ReleaseAssets.pickClipsZip(body)
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    private suspend fun download(part: File, start: URL) {
+        var url = start
         var conn: HttpURLConnection? = null
         var redirects = 0
         while (true) {
@@ -140,6 +193,7 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
             }
             if (code != HttpURLConnection.HTTP_OK) {
                 c.disconnect()
+                if (code == HttpURLConnection.HTTP_NOT_FOUND) throw NotFound(url.host)
                 throw IOException("HTTP $code from ${url.host}")
             }
             conn = c
@@ -174,6 +228,43 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
             }
         } finally {
             c.disconnect()
+        }
+    }
+
+    /** Copy a user-picked archive into [part], reporting progress like a download. */
+    private suspend fun copyFromUri(uri: Uri, part: File) {
+        val resolver = app.contentResolver
+        val total: Long? = try {
+            resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it > 0 } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (total != null && total > ZipRules.MAX_TOTAL_BYTES) {
+            throw IOException("the archive is too large (${total / 1_000_000} MB)")
+        }
+        val input = resolver.openInputStream(uri) ?: throw IOException("cannot open the selected file")
+        part.delete()
+        input.use { src ->
+            part.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                var done = 0L
+                var lastReport = 0L
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val n = src.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    done += n
+                    if (done > ZipRules.MAX_TOTAL_BYTES) throw IOException("the archive exceeds the size cap")
+                    if (done - lastReport >= 256 * 1024) {
+                        lastReport = done
+                        _state.value = State.Downloading(done, total)
+                    }
+                }
+                _state.value = State.Downloading(done, total)
+            }
         }
     }
 
@@ -255,5 +346,28 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
 
     companion object {
         const val RELEASE_URL = "https://github.com/djaramillo-calle/minimal-pairs/releases/latest/download/clips.zip"
+        const val RELEASES_API = "https://api.github.com/repos/djaramillo-calle/minimal-pairs/releases?per_page=30"
+    }
+}
+
+/** Pure helper: pick the newest release's `clips.zip` from a GitHub releases listing. */
+object ReleaseAssets {
+    private val lenient = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    fun pickClipsZip(listingJson: String): String? {
+        val releases = try { lenient.parseToJsonElement(listingJson).jsonArray } catch (e: Exception) { return null }
+        for (r in releases) {
+            val obj = r as? kotlinx.serialization.json.JsonObject ?: continue
+            if (obj["draft"]?.jsonPrimitive?.content == "true") continue
+            val assets = obj["assets"]?.jsonArray ?: continue
+            for (a in assets) {
+                val asset = a.jsonObject
+                if (asset["name"]?.jsonPrimitive?.content == "clips.zip") {
+                    val url = asset["browser_download_url"]?.jsonPrimitive?.content
+                    if (!url.isNullOrBlank() && url.startsWith("https://")) return url
+                }
+            }
+        }
+        return null
     }
 }

@@ -8,10 +8,11 @@
 #
 # The clip pack comes, in this order, from: the Actions cache (keyed by catalog
 # version + voices; a partial render is cached too and completed next time),
-# the previous release's clips-<catalog>.zip when it is a complete pack for the
+# the newest recent release whose clips-<catalog>.zip is a complete pack for the
 # same catalog, an Azure render, or the committed placeholder. A placeholder
-# release is never marked "latest", so releases/latest/download/clips.zip keeps
-# serving the last real pack (and the app refuses a pack with complete:false).
+# release attaches no clips.zip at all (the app then falls back to the newest
+# release that has one, and refuses any pack with complete:false), so a missing
+# pack never replaces a good one.
 # The APK bundles the whole pack when it is <= 40 MB, else the two
 # highest-default-weight contrasts (docs/DESIGN.md "Clips").
 #
@@ -73,24 +74,28 @@ jobs:
       - name: Restore the previous release's pack (when no complete pack is cached)
         env:
           CATALOG: ${{ steps.key.outputs.catalog }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f clips/index.json ] && jq -e '.complete == true' clips/index.json >/dev/null; then
             echo "complete pack restored from cache"; exit 0
           fi
-          URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/clips-$CATALOG.zip"
-          if ! curl -fsSL --retry 3 -o prev.zip "$URL"; then
-            echo "no clips-$CATALOG.zip on the latest release"; exit 0
-          fi
-          rm -rf prev && mkdir prev
-          if unzip -q prev.zip -d prev \
-             && jq -e --arg c "$CATALOG" '.complete == true and .catalog_version == $c' prev/index.json >/dev/null; then
-            rm -rf clips && mv prev clips
-            echo "restored the previous release's complete pack for catalog $CATALOG"
-          else
-            echo "the previous release's clips-$CATALOG.zip is not a complete pack for catalog $CATALOG; ignoring it"
+          # Walk recent releases (newest first) for a clips-<catalog>.zip; a build
+          # without a pack attaches none, so "latest" is not enough.
+          for TAG in $(gh release list --limit 30 --json tagName -q '.[].tagName'); do
+            rm -f prev.zip
+            gh release download "$TAG" --pattern "clips-$CATALOG.zip" --output prev.zip 2>/dev/null || continue
+            rm -rf prev && mkdir prev
+            if unzip -q prev.zip -d prev \
+               && jq -e --arg c "$CATALOG" '.complete == true and .catalog_version == $c' prev/index.json >/dev/null; then
+              rm -rf clips && mv prev clips
+              echo "restored the complete pack for catalog $CATALOG from release $TAG"
+              rm -f prev.zip; exit 0
+            fi
+            echo "release $TAG has a clips-$CATALOG.zip that is not a complete pack for catalog $CATALOG; ignoring it"
             rm -rf prev
-          fi
+          done
           rm -f prev.zip
+          echo "no complete clips-$CATALOG.zip on any recent release"
 
       - name: Render clip pack with Azure (only what is missing, and only when secrets exist)
         id: render
@@ -154,8 +159,13 @@ jobs:
             python3 scripts/render-clips.py --out clips --install-assets --contrasts "$BUNDLED"
           fi
           test -f app/src/main/assets/clips/index.json || { echo "assets install failed"; exit 1; }
-          (cd clips && zip -qr ../clips.zip .)
-          cp clips.zip "clips-${{ steps.key.outputs.catalog }}.zip"
+          # Only a real pack is attached to the release: the app's download looks
+          # for the newest release that carries a clips.zip.
+          rm -f clips.zip "clips-${{ steps.key.outputs.catalog }}.zip"
+          if [ "$PACK" != placeholder ]; then
+            (cd clips && zip -qr ../clips.zip .)
+            cp clips.zip "clips-${{ steps.key.outputs.catalog }}.zip"
+          fi
           echo "mode=$PACK" >> "$GITHUB_OUTPUT"
           echo "bundled=$BUNDLED" >> "$GITHUB_OUTPUT"
           echo "files=$(find clips -name '*.webm' -type f | wc -l)" >> "$GITHUB_OUTPUT"
@@ -208,10 +218,9 @@ jobs:
               echo "Signed with a debug key: Android will ask to uninstall a previously installed release-signed build before installing this one."; fi
             echo
             if [ "$PACK" = placeholder ]; then
-              echo "Clip pack: **PLACEHOLDER** ($FILES clips, \`\"complete\": false\`), catalog $CATALOG. No rendered pack was"
-              echo "available to this build (no Azure secrets, no cached render, no complete pack on the previous release)."
-              echo "This release is not marked latest, so the app keeps downloading the last real \`clips.zip\`;"
-              echo "do not install the placeholder \`clips.zip\` of this release by hand."
+              echo "Clip pack: **none attached**. The APK bundles only the placeholder ($FILES clips, \`\"complete\": false\`), catalog $CATALOG:"
+              echo "no rendered pack was available to this build (no Azure secrets, no cached render, no complete pack on a recent release)."
+              echo "The app's download uses the newest release that carries a \`clips.zip\`; Settings → Import can also install one from a file."
             else
               echo "Clip pack: full, $FILES clips, $MB MB, catalog $CATALOG (\`clips.zip\`)."
               if [ "$BUNDLED" = whole ]; then echo "The APK bundles the whole pack."; else
@@ -234,8 +243,10 @@ jobs:
           name: Minimal Pairs ${{ steps.notes.outputs.tag }}
           body_path: release-notes.md
           prerelease: false
-          # A placeholder release must not take over releases/latest/download/clips.zip.
-          make_latest: ${{ steps.pack.outputs.mode == 'placeholder' && 'false' || 'true' }}
+          # The newest APK is always the latest release; a build without a real
+          # pack simply attaches no clips.zip (missing files are skipped).
+          make_latest: "true"
+          fail_on_unmatched_files: false
           files: |
             ${{ steps.apk.outputs.path }}
             clips.zip

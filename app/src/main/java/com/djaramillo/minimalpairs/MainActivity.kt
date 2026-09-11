@@ -90,6 +90,7 @@ private fun App(vm: AppViewModel = viewModel()) {
                 onForgetFolder = vm::forgetFolder,
                 onOverride = vm::setOverride,
                 onDownload = vm::startDownload,
+                onImportPack = vm::importPack,
                 onCancelDownload = vm::cancelDownload,
                 onDeleteDownloaded = vm::deleteDownloaded,
                 onRepublish = vm::republish,

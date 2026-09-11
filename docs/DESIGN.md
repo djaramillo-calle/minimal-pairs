@@ -87,12 +87,14 @@ Poco F7 Pro on Android 15, sideloads APKs.
   `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
   `ANDROID_KEY_PASSWORD` when present (debug key otherwise, and the release
   notes say so), render or restore the clip pack (cache keyed by catalog
-  version + voices, else the previous release's `clips-<catalog>.zip` when it
+  version + voices, else the newest recent release whose `clips-<catalog>.zip`
   is a complete pack for the same catalog, else Azure when the secrets are
-  present; placeholder otherwise, and then the release is not marked latest so
-  `releases/latest/download/clips.zip` keeps serving the last real pack),
-  publish a GitHub Release with the APK and `clips.zip`. The app refuses a
-  downloaded pack whose `index.json` says `complete: false`, or that was
+  present; placeholder otherwise, in which case no `clips.zip` is attached),
+  publish a GitHub Release with the APK and `clips.zip`. The app downloads
+  `releases/latest/download/clips.zip` and, when the latest release has none,
+  the newest release that has one (GitHub releases API); Settings → Import
+  installs a `clips.zip` from a file on the phone through the same checks. The
+  app refuses a pack whose `index.json` says `complete: false`, or that was
   rendered for another catalog and does not cover this catalog's words.
 
 ## Catalog (`data/catalog/catalog.json`)

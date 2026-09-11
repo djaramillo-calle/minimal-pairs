@@ -73,9 +73,13 @@ app, so nothing is lost. The release notes say which key signed each build.
   and confirm. The choice is remembered.
 - If the build carries only part of the clip pack (the release notes say
   which contrasts are bundled, or "placeholder"), Settings offers to download
-  `clips.zip` from the latest release. This needs a network connection once;
-  after that the app is offline. The app only keeps a downloaded pack that is
-  complete and covers its own catalog.
+  `clips.zip` from the newest release that has one. This needs a network
+  connection once; after that the app is offline. The app only keeps a
+  downloaded pack that is complete and covers its own catalog.
+- No release has a pack yet (the repository has no Azure secrets)? Copy a
+  `clips.zip` to the phone by any route (Chrome download, Drive) and use
+  Settings → "Import clips.zip…"; it goes through the same checks as a
+  download and lands in the same place.
 
 ### Sync with the coach (Autosync for Google Drive)
 
