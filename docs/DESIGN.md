@@ -72,6 +72,23 @@ Poco F7 Pro on Android 15, sideloads APKs.
   ducking so music in another app is lowered, not talked over. A clip that
   cannot be decoded never strands the session: the trial offers Retry / Skip
   (a replacement draw with the same index; nothing is recorded for it).
+- Say it (production block): after the perception trials, `plan.production_pairs`
+  pairs (default 8). Screen: the pair with IPA, "hear" buttons for the model
+  voice of each word, one big record button per word (tap to start; stops on
+  tap, after 600 ms of silence following speech, or at 3 s), playback of the
+  learner's own recording, per-word result (heard as / accuracy) and the
+  pair's points, Next. Recording: `AudioRecord`, 16 kHz mono PCM16 in memory,
+  WAV-wrapped for the request; `RECORD_AUDIO` is the one extra permission,
+  requested when the block first starts (denied → the block is skipped and
+  the session still counts). Assessment: Azure Speech pronunciation
+  assessment over REST with the learner's key from Settings
+  (`https://<region>.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-GB&format=detailed`,
+  header `Pronunciation-Assessment` = base64 JSON
+  `{"ReferenceText": <word>, "GradingSystem": "HundredMark", "Granularity": "Phoneme", "Dimension": "Comprehensive", "EnableMiscue": false}`,
+  `Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000`), twice per
+  recording (intended word, other word), scored by the contract's rule.
+  Pair selection and the level ladder: `docs/ADAPTATION.md`. Without a key,
+  microphone or network the block is skipped with a one-line notice.
 - Session logic: `plan.trials_per_session` trials (default 40, ≈3 minutes),
   contrasts weighted per `docs/ADAPTATION.md`, random voice per trial, half the
   trials on untrained words. Domain logic (scheduler, state update, record

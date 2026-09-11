@@ -15,7 +15,10 @@ contrast gets when the learner is clearly struggling or clearly done with it.
 | trials per session | `plan.trials_per_session` | session length, fixed |
 | untrained ratio | `plan.untrained_ratio` | share of trials whose target word was never heard before |
 | voices | `plan.voices` | the pool for the random voice per trial |
-| difficulty band | `plan.band` | which frequency bands of words are eligible |
+| difficulty band ceiling | `plan.band` | the bands a contrast may ever use; the level ladder picks within it |
+| Say-it size and threshold | `plan.production_pairs`, `plan.production_threshold` | pairs in the production block, accuracy needed per point |
+| level ceiling and pins | `plan.max_level`, `plan.levels` | how far the ladder may go; a pinned contrast never moves |
+| consistency target | `plan.weekly_minutes_target` | shown on Home, judged by the progress report |
 | feedback verbosity | `plan.feedback` | how much the Trial screen shows after an answer |
 | note | `plan.note` | shown on Home |
 
@@ -71,7 +74,60 @@ Replays do not reset it.
 | otherwise, or no history | 1.0 |
 
 Clamped to [0.5, 2.0] after multiplying with `m_session`. The modifiers change
-the *share of trials*, never the plan file, never the targets, never the bands.
+the *share of trials*, never the plan file, never the targets.
+
+## The level ladder (the app decides, within the coach's ceiling)
+
+Every contrast sits on a rung 1–4, stored in `state.json` and snapshotted in
+each session. The rung decides the word pool and the pace, so a contrast
+that is being mastered keeps getting harder instead of plateauing, and one
+that slips gets narrower again:
+
+| Level | Word bands used (∩ `plan.band`) | Share of trials | Meaning |
+|---|---|---|---|
+| 1 | high | normal | the commonest words only |
+| 2 | high, mid | normal | |
+| 3 | high, mid, low | normal | the whole lexicon |
+| 4 | high, mid, low | × 0.5 (`m_level`) | maintenance: still probed, fewer trials |
+
+Moves happen after a session, one step at a time, never for a pinned
+contrast, never above `plan.max_level`:
+
+- **Promotion** when the last three sessions that probed the contrast all
+  had untrained accuracy ≥ 90 % and, if Say it is on, the last two production
+  results were ≥ 75 %.
+- **Demotion** when the last two untrained results were both < 60 %
+  (regression guard), or when the last two production results were both
+  < 40 % while perception stays fine (then the pool narrows so the mouth
+  catches up on common words).
+
+New contrasts start at level 1, or at `plan.levels[id]` when pinned.
+
+## Say it (production) — what adapts
+
+The block after the perception trials holds `plan.production_pairs` pairs.
+The app chooses them so that every session pushes on the weakest point:
+
+1. Contrast shares follow the perception weights (`w_eff`) multiplied by
+   `1 + (1 − last_production_pct)`, so a contrast the mouth gets wrong gets
+   more pairs.
+2. Within a contrast, in this order: pairs scored below 2 last time (due
+   again), pairs the learner just missed in this session's perception trials
+   (the perception → production link), never-attempted pairs in the level's
+   bands (commonest first), then the rest. Never the same pair twice in a
+   session; a pair scored 2 is not offered again in the very next session.
+3. Scoring is fixed by the contract (`docs/CONTRACT.md`, "Say it"); the
+   app never lowers the threshold.
+
+## Consistency (tracked, not judged, by the app)
+
+`state.json.practice` tallies every completed session by UTC day: sessions,
+seconds, perception trials, production pairs; plus the longest streak and
+total seconds. Home shows the current streak and this week's minutes against
+`plan.weekly_minutes_target`. The coach's `scripts/progress-report.py` turns
+the tally into the consistency part of its analysis and never lets a good
+score hide a bad week: a regression flag on a week with one session reads
+as a consistency problem, not a skill problem.
 
 Word exposure: `state.json.words` records every target exposure. Words are
 "trained" once exposed; the untrained probe therefore naturally moves through
@@ -85,8 +141,9 @@ The app does **not** widen it by itself.
 ## What the app never does
 
 - change `plan.json`, or any value in it, or write a plan of its own;
-- change the session length, the untrained ratio, the bands, the voices or the
-  feedback level;
+- change the session length, the untrained ratio, the band ceiling, the
+  voices, the feedback level, the Say-it size or threshold, or move a pinned
+  level;
 - drop a contrast the coach weighted above 0;
 - score the learner. Percentages are formative signals for the coach's
   ledger; the app shows them plainly and does not rank, grade or gamify beyond
