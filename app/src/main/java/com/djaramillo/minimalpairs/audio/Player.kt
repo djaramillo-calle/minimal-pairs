@@ -1,6 +1,8 @@
 package com.djaramillo.minimalpairs.audio
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
@@ -15,17 +17,60 @@ import android.os.SystemClock
  * caller ([ClipCache]) bounds how many tracks exist at once and releases them
  * when a session ends; AudioFlinger allows a few dozen tracks per app, so the
  * cache keeps well under ten.
+ *
+ * Audio focus: the first [play] of a session takes transient focus with
+ * ducking (`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`), so music or a podcast in
+ * another app is lowered instead of talked over; it is held until
+ * [abandonFocus] (session end / abandon / app to background) and re-taken by
+ * the next [play].
  */
-class Player {
+class Player(context: Context) {
     /** A clip bound to its AudioTrack. */
     class Loaded internal constructor(val clip: PreparedClip, internal val track: AudioTrack) {
         @Volatile internal var released = false
     }
 
+    private val audioManager: AudioManager? = context.applicationContext.getSystemService(AudioManager::class.java)
+
     private val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
+
+    @Volatile private var focusHeld = false
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        // A permanent loss means another app took over: request again on the next play.
+        // Clips are < 1 s, so nothing is paused; transient losses simply pass.
+        if (change == AudioManager.AUDIOFOCUS_LOSS) focusHeld = false
+    }
+
+    private val focusRequest: AudioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        .setAudioAttributes(attributes)
+        .setOnAudioFocusChangeListener(focusListener)
+        .build()
+
+    /** Take audio focus (ducking other apps) if not already held. Cheap when held. */
+    fun ensureFocus() {
+        if (focusHeld) return
+        val am = audioManager ?: return
+        focusHeld = try {
+            am.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } catch (e: RuntimeException) {
+            false
+        }
+    }
+
+    /** Give audio focus back so other apps stop ducking. Safe to call when not held. */
+    fun abandonFocus() {
+        if (!focusHeld) return
+        focusHeld = false
+        try {
+            audioManager?.abandonAudioFocusRequest(focusRequest)
+        } catch (e: RuntimeException) {
+            // nothing to do: focus is gone either way
+        }
+    }
 
     /** Create the track and write the PCM. Safe to call from any thread. */
     fun prepare(clip: PreparedClip): Loaded {
@@ -64,6 +109,7 @@ class Player {
         if (t.playState != AudioTrack.PLAYSTATE_STOPPED) t.stop()
         // Rewind the static buffer for a replay; harmless before the first play.
         t.reloadStaticData()
+        ensureFocus()
         val at = SystemClock.elapsedRealtime()
         t.play()
         return at

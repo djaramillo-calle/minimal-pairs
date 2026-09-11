@@ -80,6 +80,33 @@ class PcmTest {
     }
 
     @Test
+    fun stray_sample_at_the_head_does_not_disable_the_trim() {
+        // 1 s of digital silence with one click above -50 dBFS at sample 0, then a tone:
+        // the onset must still be found at the tone, not at the click.
+        val pcm = clip(24_000, 4800, 0)
+        pcm[0] = 200
+        val out = Pcm.trim(pcm, rate)
+        assertEquals(240 + 4800, out.size)
+        assertEquals(8000, out[240].toInt())
+        // Same clip without the click trims identically.
+        pcm[0] = 0
+        assertEquals(240 + 4800, Pcm.trim(pcm, rate).size)
+    }
+
+    @Test
+    fun onset_is_the_first_loud_sample_of_the_first_loud_window() {
+        val pcm = ShortArray(3000)
+        pcm[10] = 300 // isolated click: not an onset
+        for (i in 1000 until 3000) pcm[i] = if (i % 2 == 0) 2000 else -2000
+        assertEquals(1000, Pcm.onset(pcm, rate, Pcm.threshold(-50.0), Pcm.LEAD_WINDOW_MS))
+        assertEquals(-1, Pcm.onset(ShortArray(500) { 100 }, rate, Pcm.threshold(-50.0), Pcm.LEAD_WINDOW_MS))
+        assertEquals(-1, Pcm.onset(ShortArray(0), rate, 104, 5))
+        // A clip shorter than the window still works (window clamps to the clip).
+        val tiny = shortArrayOf(0, 0, 5000, 5000)
+        assertEquals(2, Pcm.onset(tiny, rate, 104, 5))
+    }
+
+    @Test
     fun stereo_downmix_averages_channels() {
         val stereo = shortArrayOf(100, 300, -200, 200, 10, 20)
         assertArrayEquals(shortArrayOf(200, 0, 15), Pcm.toMono(stereo, 2))

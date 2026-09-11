@@ -112,14 +112,20 @@ ClipPack.open(word, voice)            asset fd or file
   → Player.play(loaded): Long         stop() + reloadStaticData() + play(); returns elapsedRealtime()
 ```
 
-- `Pcm` (pure, tested): leading samples below −50 dBFS are cut keeping 10 ms before the first loud
-  sample; trailing samples below −60 dBFS are cut keeping 30 ms; stereo is averaged to mono. The
-  sample rate is whatever the decoder reports (24 kHz for the pack); the AudioTrack resamples.
+- `Pcm` (pure, tested): the onset is the first sample above −50 dBFS inside the first 5 ms window
+  whose RMS exceeds −50 dBFS (a single stray click cannot trip it); leading audio before it is cut
+  keeping 10 ms; trailing samples below −60 dBFS are cut keeping 30 ms; stereo is averaged to
+  mono. The sample rate is whatever the decoder reports (24 kHz for the pack); the AudioTrack
+  resamples.
 - `ClipDecoder` handles 16-bit, float and 8-bit codec output defensively and fails with an
   `IOException` (never a crash) when a clip has no audio track or the decoder stalls.
 - `ClipCache`: LRU of at most 8 decoded + track-bound clips keyed by (word, voice), in-flight
   decodes deduplicated, tracks released on eviction and on `releaseAll()` (session end / abandon /
-  ViewModel cleared).
+  ViewModel cleared). The bookkeeping lives in the pure `AsyncLru<K, V>` (tested); a failed decode
+  is forgotten at once so the next prefetch decodes again (that is what makes Retry meaningful).
+- Audio focus: `Player.play()` takes `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` (once, cheap when held)
+  so other apps' music ducks; `Player.abandonFocus()` runs at session end / abandon, when the
+  ViewModel is cleared and on the activity's `ON_STOP` (`LifecycleEventEffect` in `MainActivity`).
 
 ### Latency design
 
@@ -138,6 +144,12 @@ at start" idea from the design brief is realised as a rolling one-trial look-ahe
    static buffer starts in a few tens of milliseconds).
 4. If the next trial's decode is still running when Next is tapped, `showTrial` awaits it and the
    auto-play happens the moment it lands; the button shows the spinner meanwhile.
+5. If a clip cannot be opened, decoded or played (missing / truncated file, `AudioTrack` failure)
+   the trial enters `TrialPhase.Failed(message)`: play and word buttons are disabled and the screen
+   offers **Retry** (`retryTrial()`: decode again) and **Skip** (`skipTrial()`: `scheduler.next(i)`
+   with the same index — nothing is recorded for the failed draw, so the record still has rows
+   1..N; the scheduler's running tallies keep the failed draw, a one-trial bias). The session is
+   never lost to one bad file.
 
 ## UI — `ui`
 
@@ -145,7 +157,7 @@ at start" idea from the design brief is realised as a rolling one-trial look-ahe
   mirror, else adopt the folder's, else fresh → `plan.json` → `catalog-version.txt` →
   republish → status), `recompute()` builds `HomeUi` / `SettingsUi` from the effective plan, and
   the session loop (`startSession`, `onPlayTapped`, `onAnswer`, `onHearWord`, `onNext`,
-  `abandonSession`, `finishSession`). Session end: `RecordBuilder` → `StateUpdater` → mirror
+  `retryTrial`, `skipTrial`, `abandonSession`, `finishSession`). Session end: `RecordBuilder` → `StateUpdater` → mirror
   state + session → folder state + session → republish → `SummaryUi`.
 - `Screen` is a four-value enum; `MainActivity` switches on it. Back on Trial asks to confirm and
   discards the session (nothing is written); back on Summary/Settings goes Home.
@@ -157,6 +169,6 @@ at start" idea from the design brief is realised as a rolling one-trial look-ahe
 ## Tests (`app/src/test`, JUnit 4, JVM only)
 
 Domain: `IpaTest`, `JsonTest`, `PlanTest`, `RecordBuilderTest`, `SchedulerTest`, `StateUpdaterTest`
-(on the in-code `Fixture` catalog). App layers: `PcmTest` (silence trimming, downmix),
-`ZipRulesTest` (entry validation, sha256 manifest), `FolderLayoutTest` (Documents vs
+(on the in-code `Fixture` catalog). App layers: `PcmTest` (silence trimming, windowed onset, downmix),
+`AsyncLruTest` (dedupe, eviction, failed-load retry, release), `ZipRulesTest` (entry validation, sha256 manifest), `FolderLayoutTest` (Documents vs
 Documents/MinimalPairs, display paths, session file names), `ClipIndexTest` (merged index).

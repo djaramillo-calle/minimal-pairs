@@ -37,6 +37,7 @@
     <string name="trial_tap_to_hear">Tap a word to hear it</string>
     <string name="trial_error">Could not play this clip: %1$s</string>
     <string name="trial_skip">Skip</string>
+    <string name="trial_retry">Retry</string>
     <string name="trial_quit_title">Stop this session?</string>
     <string name="trial_quit_text">The session will be discarded and nothing is written.</string>
     <string name="trial_quit_confirm">Stop</string>

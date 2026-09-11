@@ -56,6 +56,8 @@ fun TrialScreen(
     onAnswer: (String) -> Unit,
     onHear: (String) -> Unit,
     onNext: () -> Unit,
+    onRetry: () -> Unit,
+    onSkip: () -> Unit,
     onAbandon: () -> Unit,
 ) {
     var confirmQuit by remember { mutableStateOf(false) }
@@ -79,6 +81,7 @@ fun TrialScreen(
         }
         val answered = ui.phase as? TrialPhase.Answered
         val listening = ui.phase is TrialPhase.Listening
+        val failed = ui.phase as? TrialPhase.Failed
         Column(
             Modifier
                 .fillMaxSize()
@@ -129,9 +132,10 @@ fun TrialScreen(
             // Feedback line.
             val feedbackHeight = 56.dp
             Box(Modifier.fillMaxWidth().height(feedbackHeight), contentAlignment = Alignment.Center) {
+                val problem = failed?.message ?: ui.error
                 if (answered != null) FeedbackLine(answered.correct, ui.feedback)
-                else if (ui.error != null) Text(
-                    stringResource(R.string.trial_error, ui.error),
+                else if (problem != null) Text(
+                    stringResource(R.string.trial_error, problem),
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyMedium,
@@ -157,15 +161,27 @@ fun TrialScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = onNext,
-                enabled = answered != null,
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-            ) {
-                Text(
-                    stringResource(if (ui.isLast) R.string.trial_finish else R.string.trial_next),
-                    style = MaterialTheme.typography.titleMedium,
-                )
+            if (failed != null) {
+                // A clip that cannot be played: decode it again or draw a replacement.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = onRetry, modifier = Modifier.weight(1f).height(60.dp)) {
+                        Text(stringResource(R.string.trial_retry), style = MaterialTheme.typography.titleMedium)
+                    }
+                    Button(onClick = onSkip, modifier = Modifier.weight(1f).height(60.dp)) {
+                        Text(stringResource(R.string.trial_skip), style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onNext,
+                    enabled = answered != null,
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                ) {
+                    Text(
+                        stringResource(if (ui.isLast) R.string.trial_finish else R.string.trial_next),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
             }
             Spacer(Modifier.height(4.dp))
         }

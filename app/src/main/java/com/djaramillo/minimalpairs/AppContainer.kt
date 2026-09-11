@@ -24,7 +24,7 @@ class AppContainer private constructor(context: Context) {
     val folder = DataFolder(app, prefs)
     val pack = ClipPack(app)
     val downloader = ClipDownloader(app, pack)
-    val player = Player()
+    val player = Player(app)
 
     val appVersion: String by lazy {
         try {
