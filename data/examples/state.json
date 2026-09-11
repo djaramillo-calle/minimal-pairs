@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "updated": "2026-09-11T07:03:06Z",
+  "app_version": "0.1.0",
+  "catalog_version": "2026-09-11.1",
+  "sessions_completed": 3,
+  "streak_days": 3,
+  "last_session": "2026-09-11T07:02:11Z",
+  "plan_source": "coach",
+  "contrasts": {
+    "th": {
+      "trials": 33, "correct": 24,
+      "untrained_trials": 17, "untrained_correct": 11,
+      "last_pct": 0.667, "last_untrained_pct": 0.5,
+      "recent_untrained_pct": [0.6, 0.7, 0.5],
+      "mean_rt_ms": 985,
+      "words_trained": 14, "words_total": 96
+    },
+    "s/z": {
+      "trials": 27, "correct": 21,
+      "untrained_trials": 14, "untrained_correct": 10,
+      "last_pct": 0.667, "last_untrained_pct": 0.5,
+      "recent_untrained_pct": [0.75, 0.667, 0.5],
+      "mean_rt_ms": 1010,
+      "words_trained": 11, "words_total": 74
+    }
+  },
+  "words": {
+    "through": {"exposures": 1, "correct": 1, "last": "2026-09-11T07:02:20Z"},
+    "cause": {"exposures": 1, "correct": 0, "last": "2026-09-11T07:02:29Z"},
+    "sort": {"exposures": 2, "correct": 2, "last": "2026-09-11T07:02:37Z"},
+    "once": {"exposures": 2, "correct": 2, "last": "2026-09-11T07:02:45Z"},
+    "day": {"exposures": 1, "correct": 0, "last": "2026-09-11T07:02:54Z"},
+    "eyes": {"exposures": 1, "correct": 1, "last": "2026-09-11T07:03:02Z"},
+    "thought": {"exposures": 1, "correct": 1, "last": "2026-09-10T07:11:40Z"},
+    "ones": {"exposures": 1, "correct": 0, "last": "2026-09-09T07:08:12Z"}
+  }
+}
