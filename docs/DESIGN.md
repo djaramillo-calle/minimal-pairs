@@ -85,8 +85,9 @@ Poco F7 Pro on Android 15, sideloads APKs.
   (`https://<region>.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-GB&format=detailed`,
   header `Pronunciation-Assessment` = base64 JSON
   `{"ReferenceText": <word>, "GradingSystem": "HundredMark", "Granularity": "Phoneme", "Dimension": "Comprehensive", "EnableMiscue": false}`,
-  `Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000`), twice per
-  recording (intended word, other word), scored by the contract's rule.
+  `Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000`; en-US with
+  `"PhonemeAlphabet": "IPA"` for the two assessment calls, plus one en-GB
+  recognition call without the header), scored by the contract's rule.
   Pair selection and the level ladder: `docs/ADAPTATION.md`. Without a key,
   microphone or network the block is skipped with a one-line notice.
 - Session logic: `plan.trials_per_session` trials (default 40, ≈3 minutes),

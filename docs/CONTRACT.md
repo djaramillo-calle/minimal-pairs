@@ -186,8 +186,8 @@ ISO form.
   "production": [
     {"i": 1, "contrast": "th", "pair": "th:think-sink", "a": "think", "b": "sink", "points": 1, "level": 2,
      "words": {
-       "think": {"heard": "sink", "acc": 41, "acc_other": 78, "phoneme_acc": 22, "recognised": "sink", "ms": 1380, "attempts": 1},
-       "sink":  {"heard": "sink", "acc": 92, "acc_other": 35, "phoneme_acc": 95, "recognised": "sink", "ms": 1100, "attempts": 1}
+       "think": {"heard": "sink", "acc": 81, "acc_other": 96, "ph": 24, "ph_other": 99, "votes": "phoneme:other word:other recognition:other", "recognised": "sink", "ms": 1380, "attempts": 1},
+       "sink":  {"heard": "sink", "acc": 98, "acc_other": 82, "ph": 93, "ph_other": 44, "votes": "phoneme:intended word:intended recognition:intended", "recognised": "sink", "ms": 1100, "attempts": 1}
      }}
   ],
   "summary": {
@@ -232,27 +232,45 @@ Trial row fields:
 ## Say it — production rows
 
 After the perception trials the app shows up to `production_pairs` pairs. For
-each pair the learner records each word separately (up to 3 s each; the app
-plays the model voice on request, and the learner can hear the recording
-back). Each recording is assessed twice by Azure Speech pronunciation
-assessment (en-GB, hundred-mark, phoneme granularity): once with the intended
-word as reference text and once with the other word of the pair. This is the
-coach's scoring rule, chosen so that the score measures the **contrast**, not
-general clarity:
+each pair the learner records each word separately (up to 3 s; the app plays
+the model voice on request and plays the recording back). The recording is
+padded with 400 ms of silence on both sides (Azure drops abrupt clips) and
+assessed three times with the learner's Azure key. This is the coach's rule,
+measured on synthesized clips of every contrast before it was fixed: a single
+signal is not enough (reference-text assessment alone scored "ship" against
+"sheep" at 100; plain recognition of an isolated word misses homophones and
+guesses on vowels), but three signals with a majority vote are.
+
+| Signal | Call | Vote for the intended word when… |
+|---|---|---|
+| phoneme | en-US pronunciation assessment, IPA phonemes, reference = intended word, and again with reference = the other word | the differing phoneme scores ≥ 15 points higher under the intended reference than the other word's differing phoneme under the other reference (`ph` vs `ph_other`); the reverse votes for the other word |
+| word | the same two calls, word-level accuracy | `acc ≥ acc_other + 10`; reverse votes for the other word |
+| recognition | en-GB recognition without reference text | the recognised word is the intended word, or a catalog word with the same IPA (homophones such as court/caught); the other word votes for the other |
+
+`heard` is the majority of the votes cast (a signal with no clear winner does
+not vote); a tie or no vote gives `"?"`. For `long-back` and `schwa` the
+phoneme signal is skipped (en-US models have no ɒ or ɑː/æ split of the
+British kind) and the other two decide. A word earns **1 point** when `heard`
+is the intended word **and** `acc ≥ production_threshold`. A pair scores 0,
+1 or 2.
+
+Row fields under `words.<word>`:
 
 | Field | Meaning |
 |---|---|
-| `acc` | Azure word accuracy (0–100) with the intended word as reference |
-| `acc_other` | the same recording assessed against the other word of the pair |
-| `heard` | the intended word when `acc ≥ acc_other + 5`, the other word when `acc_other ≥ acc + 5`, else `"?"` |
-| `phoneme_acc` | accuracy of the differing phoneme in the intended-word assessment, `null` when Azure did not return it |
-| `recognised` | Azure's display text for the intended-word call |
-| `ms` | recording length |
+| `heard` | the intended word, the other word, or `"?"` |
+| `acc` / `acc_other` | word accuracy (0–100) under the intended / the other reference |
+| `ph` / `ph_other` | accuracy of the differing phoneme under each reference; `null` when Azure returned no phonemes or the contrast skips the signal |
+| `votes` | the three votes, e.g. `"phoneme:intended word:intended recognition:other"` |
+| `recognised` | the en-GB recognition text, lower-cased, punctuation stripped |
+| `ms` | recording length before padding |
 | `attempts` | recordings made for this word (a recording with no speech may be redone once; a scored one is never redone) |
 
-A word earns **1 point** when `heard` is the intended word **and**
-`acc ≥ production_threshold`. A pair scores 0, 1 or 2. Recordings are not
-kept in the folder (they stay in the app's cache until the next session).
+Recordings are not kept in the folder (they stay in the app's cache until the
+next session). The mapping from the catalog's Britfone phonemes to Azure's
+en-US IPA is fixed in the app (`iː→i`, `ɜː→ɝ`, `ɔː→ɔ`, `ɒ→ɑ`, `ɑː→ɑ`, the
+rest identical); when the symbol is not found the phoneme is located by its
+position in the word.
 
 `summary.untrained_pct` is `null` when the session had no untrained trial
 (`untrained_ratio: 0`, or every eligible word already trained); it is never
