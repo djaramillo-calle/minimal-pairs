@@ -109,6 +109,17 @@ data class SayItSentenceUi(
     val last: Boolean get() = index >= words.size - 1
     /** Nothing to drill: the mode opens on the short page that says so. */
     val empty: Boolean get() = !loading && words.isEmpty()
+
+    /**
+     * This run is over and re-entering the mode must start a fresh one: it
+     * finished, there was nothing to drill, or the folder was unusable. The
+     * ViewModel is scoped to the activity, so without this the summary of the
+     * last sitting would still be on screen the next time Say it is opened,
+     * and a `sayit.zip` that arrived meanwhile would never be read. A run in
+     * progress is deliberately not stale — re-entry also happens after a
+     * rotation, which must not throw a sitting away.
+     */
+    val stale: Boolean get() = !loading && (done || empty || folderProblem != null)
 }
 
 /**
@@ -184,6 +195,13 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     private var recordJob: Job? = null
     private var clipJob: Job? = null
 
+    /**
+     * The stop-and-write coroutine, from the tap that ends a recording until
+     * the attempt is in `sayit/attempts/`. It is kept because the cache file it
+     * is copying from must outlive it: see [clearAttempt].
+     */
+    private var saveJob: Job? = null
+
     /** Set between the tap that stops and the outcome, so a double tap cannot stop twice. */
     private var stopping = false
 
@@ -201,6 +219,24 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ---- opening the mode -------------------------------------------------
+
+    /**
+     * The mode has been entered. This ViewModel is scoped to the activity, so
+     * the same instance is handed back every time Say it is opened: a run that
+     * is over is thrown away here and the folder read again, or the mode would
+     * be a dead end after one sitting and would never see a `sayit.zip` that
+     * DriveSync delivered while the app was open (docs/CONTRACT.md). A run
+     * still in progress is left exactly as it was, because this also fires
+     * when the screen is rebuilt after a rotation.
+     */
+    fun onEnter() {
+        if (!_ui.value.stale) return
+        endWord()
+        recorded.clear()
+        results = null
+        _ui.value = SayItSentenceUi()
+        viewModelScope.launch { open() }
+    }
 
     /**
      * Read the folder once: the status, the coach's two files, the run and the
@@ -325,6 +361,11 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     private fun startRecording() {
         val current = _ui.value
         if (current.folderProblem != null || current.word == null || current.saving) return
+        // The microphone takes tens of milliseconds to open and the button still
+        // reads "Record" meanwhile, so a second tap is easy. The coroutine
+        // already running owns that recorder — cancelling it here would leave a
+        // live MediaRecorder holding the microphone with nobody able to stop it.
+        if (recordJob?.isActive == true) return
         if (!recorder.hasPermission()) {
             _ui.value = current.copy(micDenied = true)
             return
@@ -362,10 +403,20 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopRecording() {
         if (stopping) return
         stopping = true
+        // The word, when it began and how often the model was played are read
+        // here, before anything suspends. They describe the take that was just
+        // made, and the fields they come from belong to the current word, which
+        // is put down the moment he moves on (docs/CONTRACT.md: the sidecar
+        // must match the audio, not whatever the screen shows when the write
+        // finally lands).
+        val word = _ui.value.word
+        val began = startedAt
+        val plays = clipPlayed
         _ui.value = _ui.value.copy(recording = false, saving = true)
-        viewModelScope.launch {
+        saveJob = viewModelScope.launch {
             when (val outcome = recorder.stop()) {
-                is AttemptRecorder.Outcome.Ok -> save(outcome)
+                is AttemptRecorder.Outcome.Ok ->
+                    if (word == null) fail(SayItNotice(SayItTrouble.NOT_SAVED)) else save(outcome, word, began, plays)
                 is AttemptRecorder.Outcome.Failed -> fail(SayItNotice(SayItTrouble.RECORDER, outcome.reason))
                 AttemptRecorder.Outcome.Interrupted -> fail(SayItNotice(SayItTrouble.INTERRUPTED))
                 AttemptRecorder.Outcome.TooShort -> fail(SayItNotice(SayItTrouble.TOO_SHORT))
@@ -387,11 +438,16 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      *
      * The sentence comes from the [SayItWord] this screen was built from, never
      * from anything the screen laid out, because the cloud scores the audio
-     * against that exact string.
+     * against that exact string. [word], [begunAt] and [clipPlays] are the
+     * snapshot [stopRecording] took before it suspended, for the same reason.
      */
-    private suspend fun save(take: AttemptRecorder.Outcome.Ok) {
-        val word = _ui.value.word ?: return
-        val began = (startedAt ?: Instant.now()).truncatedTo(ChronoUnit.SECONDS)
+    private suspend fun save(
+        take: AttemptRecorder.Outcome.Ok,
+        word: SayItWord,
+        begunAt: Instant?,
+        clipPlays: Int,
+    ) {
+        val began = (begunAt ?: Instant.now()).truncatedTo(ChronoUnit.SECONDS)
         val at = folder.freeAttemptStart(word.id, began)
         val sidecar = AttemptSidecar(
             id = word.id,
@@ -400,7 +456,7 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             started = TimeUtil.formatIso(at),
             durationS = (take.durationMs / 100.0).roundToLong() / 10.0,
             appVersion = container.appVersion,
-            clipPlayed = clipPlayed,
+            clipPlayed = clipPlays,
         )
         val stem = folder.writeSayItAttempt(take.file, sidecar)
         attemptWritten = stem != null
@@ -481,13 +537,25 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      * rather than [viewModelScope] so that it still happens when the ViewModel
      * is being cleared — a recording of the learner's voice must not be left in
      * the cache because the screen went away mid-word.
+     *
+     * It waits for [saveJob] first. There is only ever one cache file
+     * ([ATTEMPT_FILE]), so the file this deletes is the very one an in-flight
+     * write is copying into `sayit/attempts/`; deleting it under that write
+     * would lose the take he had just made, and he would not be told, because
+     * the page that would carry the notice has already been left behind.
      */
     private fun clearAttempt() {
         val file = attemptFile
+        val writing = saveJob
         attemptFile = null
         attemptWritten = false
         startedAt = null
-        if (file != null) container.scope.launch(Dispatchers.IO) { file.delete() }
+        if (file != null) {
+            container.scope.launch(Dispatchers.IO) {
+                writing?.join()
+                file.delete()
+            }
+        }
         _ui.value = _ui.value.copy(attempt = false, attemptSaved = false)
     }
 
@@ -495,6 +563,11 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      * The app went to the background, the screen went off or a call arrived.
      * A recording of half a sentence would be scored as a sentence with words
      * missing, so it is thrown away rather than kept, and playback stops.
+     *
+     * A write already under way is neither cancelled nor hidden: it runs on
+     * [viewModelScope], which the background does not end, and only it clears
+     * [SayItSentenceUi.saving]. Clearing that flag here used to re-enable Next
+     * over a live write, which is how a finished take was lost.
      */
     fun onBackground() {
         val was = _ui.value.recording
@@ -506,10 +579,25 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         if (was) clearAttempt()
         _ui.value = _ui.value.copy(
             recording = false,
-            saving = false,
             playing = ComparePart.NONE,
             notice = if (was) SayItNotice(SayItTrouble.INTERRUPTED) else _ui.value.notice,
         )
+    }
+
+    /**
+     * Back in the foreground. The only thing to re-check is the microphone: he
+     * may have granted it in Android's own settings, which the "recording is
+     * off" card sends him to, and granting a permission does not restart the
+     * process, so nothing else in the mode would ever notice.
+     *
+     * It only ever clears the flag. A refusal is not inferred from a permission
+     * that has simply never been asked for, so a learner who has not reached
+     * the system prompt still meets the plain Record control.
+     */
+    fun onForeground() {
+        if (_ui.value.micDenied && recorder.hasPermission()) {
+            _ui.value = _ui.value.copy(micDenied = false)
+        }
     }
 
     override fun onCleared() {

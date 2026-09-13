@@ -79,7 +79,13 @@ fun SayItSentenceScreen(
             title = { Text(stringResource(R.string.sayit_sentence_leave_title)) },
             text = { Text(stringResource(R.string.sayit_sentence_leave_text)) },
             confirmButton = {
-                TextButton(onClick = { confirmLeave = false; onLeave() }) {
+                // Leaving ends the word, and ending the word deletes the cache
+                // file the folder write is still reading: while it runs, the
+                // only honest answer is to wait, exactly as Next and Record do.
+                TextButton(
+                    onClick = { confirmLeave = false; onLeave() },
+                    enabled = !ui.saving,
+                ) {
                     Text(stringResource(R.string.sayit_sentence_leave_confirm))
                 }
             },
@@ -120,10 +126,11 @@ fun SayItSentenceScreen(
                 highlightedSentence(word.sentence, word.word, MaterialTheme.colorScheme.primary),
                 style = MaterialTheme.typography.headlineMedium,
             )
-            if (word.ipa != null) {
+            val ipa = ipaLine(word.ipa)
+            if (ipa != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.sayit_sentence_ipa, word.ipa),
+                    stringResource(R.string.sayit_sentence_ipa, ipa),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -132,12 +139,15 @@ fun SayItSentenceScreen(
             Spacer(Modifier.height(20.dp))
             ModelRow(ui, onPlayModel)
 
-            Spacer(Modifier.height(20.dp))
+            // The card sits above the control rather than replacing it. Record
+            // is the only route to the rationale and the permission request, so
+            // hiding it made a refusal a latch that nothing could undo.
             if (ui.micDenied) {
+                Spacer(Modifier.height(20.dp))
                 MicOff(onAndroidSettings)
-            } else {
-                RecordRow(ui, onRecord)
             }
+            Spacer(Modifier.height(20.dp))
+            RecordRow(ui, onRecord)
 
             if (ui.attempt) {
                 Spacer(Modifier.height(20.dp))
@@ -326,6 +336,10 @@ fun SayItEmptyScreen(ui: SayItSentenceUi, onHome: () -> Unit) {
         extra = ui.listMessage?.let { stringResource(R.string.sayit_sentence_empty_problem, it) },
         actionLabel = stringResource(R.string.sayit_sentence_home),
         onAction = onHome,
+        // Every remaining word waiting for a person is the expected end state of
+        // a word set, and this page is then the only one he ever reaches: the
+        // done page is behind a run there is nothing to run (docs/CONTRACT.md).
+        tutor = ui.tutor.map { it.word },
     )
 }
 
@@ -361,6 +375,7 @@ private fun NoticePage(
     onAction: () -> Unit,
     secondLabel: String? = null,
     onSecond: (() -> Unit)? = null,
+    tutor: List<String> = emptyList(),
 ) {
     Scaffold { padding ->
         Column(
@@ -377,6 +392,20 @@ private fun NoticePage(
             if (extra != null) {
                 Spacer(Modifier.height(10.dp))
                 Text(extra, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            }
+            if (tutor.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                SectionCard(stringResource(R.string.sayit_sentence_done_tutor)) {
+                    tutor.forEach { w ->
+                        Text(w, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.sayit_sentence_done_tutor_note),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Spacer(Modifier.height(24.dp))
             Button(onClick = onAction, modifier = Modifier.fillMaxWidth().height(56.dp)) {
@@ -420,6 +449,16 @@ private fun noticeText(notice: SayItNotice): String = when (notice.trouble) {
     SayItTrouble.NOT_SAVED -> stringResource(R.string.sayit_sentence_trouble_not_saved)
     SayItTrouble.PLAYBACK -> notice.detail ?: stringResource(R.string.sayit_sentence_trouble_playback)
 }
+
+/**
+ * The IPA line to draw under the sentence, or null when the word has none.
+ *
+ * An absent `ipa` key and an empty one must be treated alike: the coach writes
+ * `"ipa": ""` for a word it has no transcription for, and `explicitNulls =
+ * false` maps only the absent key to null, so a nullability check alone leaves
+ * the format string drawing a bare "//" under every sentence of every run.
+ */
+fun ipaLine(ipa: String?): String? = ipa?.trim()?.takeIf { it.isNotEmpty() }
 
 /**
  * The sentence with its target word picked out in [colour].

@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.djaramillo.minimalpairs.domain.model.Override
 import com.djaramillo.minimalpairs.domain.model.PlanDefaults
 import com.djaramillo.minimalpairs.storage.DataFolder
+import com.djaramillo.minimalpairs.ui.sayit.SayItSweep
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,11 +100,61 @@ fun SettingsScreen(
             OverrideSection(ui, onOverride)
             PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded, locked = render.isRunning)
             AzureSection(ui, render, onSaveAzure, onTestAzure, onForgetAzure, onRender, onCancelRender)
+            SayItSection(ui)
             SectionCard(stringResource(R.string.settings_versions)) {
                 Text(stringResource(R.string.settings_app_version, ui.appVersion))
                 Text(stringResource(R.string.settings_catalog_version, ui.catalogVersion))
             }
             Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * Say it: what the coach's `sayit.zip` currently holds, why it cannot be used
+ * when it cannot, and the rule that deletes attempt audio after thirty days.
+ *
+ * The retention rule is stated here because docs/CONTRACT.md requires it: the
+ * app removes recordings of his own voice from his own folder, and the only
+ * honest place to say so is the page he can read at any time, not a line on a
+ * summary that appears once and only when something was actually deleted.
+ */
+@Composable
+private fun SayItSection(ui: SettingsUi) {
+    SectionCard(stringResource(R.string.settings_sayit)) {
+        Text(
+            if (ui.sayItWords > 0) {
+                stringResource(R.string.settings_sayit_words, ui.sayItWords)
+            } else {
+                stringResource(R.string.settings_sayit_none)
+            },
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        val message = ui.sayItMessage
+        if (message != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.settings_sayit_problem, message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.settings_sayit_retention),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // A figure from the sweep the mode ran when it was last opened, so it is
+        // read once as the page is drawn rather than watched.
+        val swept = remember { SayItSweep.lastRemoved() }
+        if (swept != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.settings_sayit_swept, swept),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

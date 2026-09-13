@@ -166,6 +166,13 @@
     <string name="settings_azure_msg_missing">Key works, but these voices are missing in this region: %1$s</string>
     <string name="settings_pack_import_hint">Import installs a clips.zip already on the phone (for example from the Releases page or Drive) with the same checks as a download.</string>
 
+    <string name="settings_sayit">Say it</string>
+    <string name="settings_sayit_words">%1$d sentence(s) flagged by your coach are waiting.</string>
+    <string name="settings_sayit_none">No flagged sentences yet; they arrive in sayit.zip with the next sync.</string>
+    <string name="settings_sayit_problem">The coach\'s list could not be read: %1$s</string>
+    <string name="settings_sayit_retention">Recordings you have already been scored on are removed from your folder once they are 30 days old, on the phone and in Drive. The short notes beside them stay: they are the coach\'s record that the attempt was handled.</string>
+    <string name="settings_sayit_swept">The last tidy-up removed %1$d recording(s).</string>
+
     <string name="settings_versions">Versions</string>
     <string name="settings_app_version">App %1$s</string>
     <string name="settings_catalog_version">Catalog %1$s</string>

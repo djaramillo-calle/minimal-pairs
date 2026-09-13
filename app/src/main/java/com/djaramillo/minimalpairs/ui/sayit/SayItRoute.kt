@@ -13,6 +13,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +83,22 @@ fun SayItRoute(
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (activity?.isChangingConfigurations != true) vm.onBackground()
+    }
+    // He may have granted the microphone in Android's own settings, which the
+    // "Recording is off" card sends him to; granting it does not restart the
+    // process, so nothing else would ever notice.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onForeground() }
+    // The ViewModel is scoped to the activity and outlives this screen, so a
+    // finished run is thrown away and the folder read again on the way in.
+    LaunchedEffect(Unit) { vm.onEnter() }
+    // Reading a whole sentence takes most of the twenty-second cap and he
+    // touches nothing meanwhile: without this the display times out, the
+    // activity stops and the take is discarded as an interruption. MainActivity
+    // does the same while the pack is being rendered.
+    DisposableEffect(ui.recording) {
+        val window = activity?.window
+        if (ui.recording) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     val problem = ui.folderProblem

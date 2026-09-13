@@ -159,6 +159,10 @@ data class SettingsUi(
     val azureOk: Boolean? = null,
     /** A download or import is writing the pack directory (the renderer must wait). */
     val packBusy: Boolean = false,
+    /** Active words waiting in the coach's `sayit.zip`; 0 when it has not arrived. */
+    val sayItWords: Int = 0,
+    /** Why there are none, when the zip is there but unusable: the warning docs/CONTRACT.md asks Settings for. */
+    val sayItMessage: String? = null,
 )
 
 /**
@@ -360,6 +364,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             azureRegion = prefs.azureRegion ?: "",
             azureKeySet = !prefs.azureKey.isNullOrEmpty(),
             packBusy = downloader.state.value.isRunning,
+            sayItWords = sayItWords,
+            sayItMessage = sayItMessage,
         )
         viewModelScope.launch {
             val bytes = pack.downloadedBytes()
