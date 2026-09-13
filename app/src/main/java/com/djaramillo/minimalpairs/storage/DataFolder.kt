@@ -410,6 +410,43 @@ class DataFolder(context: Context, private val prefs: Prefs) {
         false
     }
 
+    /**
+     * Every child of [dir] as display name to document uri, read in one query.
+     *
+     * `DocumentFile.listFiles()` projects the document id alone, so each
+     * child's name costs another `ContentResolver` round trip; asking for the
+     * name in the projection answers the whole question once. That is the
+     * difference between a few binder calls and several thousand of them in
+     * `sayit/attempts/`, which grows for ever and is listed on every saved
+     * recording. Throws what the provider throws: a caller that cannot tell an
+     * empty folder from an unreadable one must catch it itself.
+     */
+    private fun childUris(dir: DocumentFile): Map<String, Uri> {
+        val tree = dir.uri
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree,
+            DocumentsContract.getDocumentId(tree),
+        )
+        val out = LinkedHashMap<String, Uri>()
+        resolver.query(
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(0) ?: continue
+                val name = cursor.getString(1) ?: continue
+                out[name] = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+            }
+        }
+        return out
+    }
+
     /** `DocumentFile.findFile` without the exception surface of a vanished tree. */
     private fun findChild(dir: DocumentFile, name: String): DocumentFile? = try {
         dir.listFiles().firstOrNull { it.name == name }
@@ -439,16 +476,24 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * app records, writes and displays, the cloud scores.
      */
 
-    /** Size and modification time of `sayit.zip`, so a refresh can tell it has not changed. */
-    data class SayItZipInfo(val bytes: Long, val modified: Long)
+    /**
+     * Size and modification time of `sayit.zip`, so a refresh can tell it has
+     * not changed. [readable] is false when the folder would not answer at
+     * all, which is a broken zip and not the same thing as one the coach has
+     * not sent yet: the caller must say so rather than show the "no list yet"
+     * page.
+     */
+    data class SayItZipInfo(val bytes: Long, val modified: Long, val readable: Boolean = true)
 
     /** `sayit.zip` as the folder currently has it, or null when it is not there. */
     suspend fun sayItZipInfo(): SayItZipInfo? = withContext(Dispatchers.IO) {
-        val doc = sayItZip() ?: return@withContext null
         try {
-            SayItZipInfo(doc.length(), doc.lastModified())
+            val root = root() ?: return@withContext null
+            val doc = childUris(root)[FolderLayout.SAYIT_ZIP] ?: return@withContext null
+            val file = DocumentFile.fromSingleUri(app, doc)?.takeIf { it.isFile } ?: return@withContext null
+            SayItZipInfo(file.length(), file.lastModified())
         } catch (e: Exception) {
-            null
+            SayItZipInfo(bytes = 0L, modified = 0L, readable = false)
         }
     }
 
@@ -526,7 +571,10 @@ class DataFolder(context: Context, private val prefs: Prefs) {
         var written: DocumentFile? = null
         try {
             val dir = attemptsDir(create = true) ?: return@withContext null
-            if (findChild(dir, audioName) != null || findChild(dir, sidecarName) != null) return@withContext null
+            // One listing answers both halves of the stem: the folder is large
+            // and every extra walk of it is time the owner spends waiting.
+            val present = childUris(dir)
+            if (audioName in present || sidecarName in present) return@withContext null
             val audioDoc = dir.createFile(MIME_BINARY, audioName) ?: return@withContext null
             written = audioDoc
             if (!copyInto(audioDoc.uri, audio)) {
@@ -541,33 +589,44 @@ class DataFolder(context: Context, private val prefs: Prefs) {
             }
             SayItNames.stem(ts, id)
         } catch (e: Exception) {
-            try { written?.delete() } catch (e2: Exception) { /* the orphan sweep is best effort */ }
+            try { written?.delete() } catch (e2: Exception) {
+                // If the audio will not go now, the orphan half of
+                // [sweepSayItAttempts] takes it later: audio with no sidecar
+                // is the one thing no other rule can ever collect.
+            }
             null
         }
     }
 
     /**
      * The retention sweep (docs/CONTRACT.md): delete the attempt audio that is
-     * more than 30 days old **and** already scored in [results]. Returns how
-     * many files went, or null when the folder is unavailable.
+     * more than 30 days old **and** already scored in [results], and the
+     * orphaned audio that has no sidecar beside it. Returns how many files
+     * went, or null when the folder is unavailable.
      *
-     * `SayItCleanup.deletable` decides; this only carries the decision out,
-     * and it re-checks that every name is attempt audio before deleting. The
-     * sidecars stay as the record of the attempt, an unscored recording is
-     * never deleted however old, and nothing outside `sayit/attempts/` is
-     * touched: `clips/`, `words.json` and `results.json` are the coach's.
+     * `SayItCleanup` decides both; this only carries the decision out, and it
+     * re-checks that every name is attempt audio before deleting. The orphans
+     * are the leftovers of a write whose sidecar never landed: the coach
+     * cannot score a recording it has no sidecar for and reports it as an
+     * error on every run, and the retention rule can never reach it, because
+     * that rule asks whether the sidecar has been scored. The sidecars stay as
+     * the record of the attempt, an unscored recording that has one is never
+     * deleted however old, and nothing outside `sayit/attempts/` is touched:
+     * `clips/`, `words.json` and `results.json` are the coach's.
      */
     suspend fun sweepSayItAttempts(results: SayItResults?, now: java.time.Instant): Int? =
         withContext(Dispatchers.IO) {
             try {
                 if (root() == null) return@withContext null
                 val dir = attemptsDir(create = false) ?: return@withContext 0
-                val present = dir.listFiles().filter { it.name != null }.associateBy { it.name!! }
+                val present = childUris(dir)
+                val names = present.keys.toList()
                 var removed = 0
-                for (name in SayItCleanup.deletable(present.keys.toList(), results, now)) {
+                val going = (SayItCleanup.deletable(names, results, now) + SayItCleanup.orphans(names, now)).distinct()
+                for (name in going) {
                     if (!SayItNames.isAttemptAudio(name)) continue
-                    val doc = present[name] ?: continue
-                    val gone = try { doc.delete() } catch (e: Exception) { false }
+                    val uri = present[name] ?: continue
+                    val gone = try { DocumentsContract.deleteDocument(resolver, uri) } catch (e: Exception) { false }
                     if (gone) removed++
                 }
                 removed
@@ -609,7 +668,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
 
     /** Every name in `sayit/attempts/`, listed once; empty when the folder is unavailable. */
     private fun attemptFileNames(): List<String> = try {
-        attemptsDir(create = false)?.listFiles()?.mapNotNull { it.name } ?: emptyList()
+        attemptsDir(create = false)?.let { childUris(it).keys.toList() } ?: emptyList()
     } catch (e: Exception) {
         emptyList()
     }

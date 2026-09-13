@@ -118,8 +118,9 @@ New contrasts start at level 1, or at `plan.levels[id]` when pinned.
 
 Nothing. **Say it** is a separate mode driven entirely by the coach's
 `sayit.zip` (`docs/CONTRACT.md`, "Say it"): the coach picks the words and their
-sentences, the app shows the `active` ones worst `miss_rate` first, `per_session`
-of them, and records what the learner says. The app does not choose words, does
+sentences, the app shows the first `per_session` of the `active` ones in the
+contract's fixed order (`miss_rate` descending, then `added` descending,
+`flagged_on` descending and `id` ascending), and records what the learner says. The app does not choose words, does
 not score, and does not touch `plan.json`, `state.json` or `sessions/` for it.
 The Say-it loop and the perception ladder are independent.
 

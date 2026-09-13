@@ -267,8 +267,11 @@ clips/<id>.ogg      an en-GB Azure neural voice reading that word's `sentence`
 
 The app **reads** `sayit.zip` and never writes it. It is treated as untrusted
 input: an entry with an absolute path, a `..` segment, a backslash, a colon, a
-path deeper than `clips/<name>.ogg`, or one over the size caps is refused, and
-nothing is written outside the app's own private directory.
+path deeper than `clips/<name>.ogg`, or one over the per-entry size cap (8 MB)
+is refused — that entry, not the payload, so one oversized clip costs the model
+audio of one word and nothing else. Only a payload past the total cap (96 MB
+unpacked, 64 MB as a file) is left alone whole, because carrying on there would
+fill the phone. Nothing is written outside the app's own private directory.
 
 `words.json`:
 
@@ -283,7 +286,7 @@ nothing is written outside the app's own private directory.
 
 | Key | Meaning |
 |---|---|
-| `per_session` | how many words to show in one sitting |
+| `per_session` | how many words to show in one sitting; an integer 1 to 50, and a number outside that is clamped rather than obeyed (the app also uses 5 when the key is absent) |
 | `id` | the word's id; also the clip name and the `<id>` half of an attempt's file name |
 | `word` | the flagged word, highlighted inside `sentence` |
 | `sentence` | the sentence he actually read, and the only thing the cloud scores against |
@@ -292,6 +295,14 @@ nothing is written outside the app's own private directory.
 | `classes` | the coach's confusion classes; may be empty |
 | `flagged_on` / `read_on` / `miss_rate` | the coach's evidence; `miss_rate` orders the session |
 | `added` | UTC date the word entered the set |
+
+**`id` is `[A-Za-z0-9._-]`, 1 to 64 characters, and may not start with a dot.**
+It is used **verbatim**, never sanitised: it is the clip name (`clips/<id>.ogg`),
+the `<id>` half of both attempt file names and the key in `results.json`, so
+rewriting a character in any one of those four places would stop the others
+matching. The coach must therefore emit an id that already obeys the rule; an
+entry whose id does not is dropped by the app, with no clip and no attempt ever
+written for it.
 
 `results.json` — what the cloud scored, written back inside the same zip:
 
@@ -313,16 +324,30 @@ be `null`.
 | `tutor` | still failing after three weeks | shows it greyed, with a line saying a human should hear this one |
 
 A word with no entry in `results.json` is `active`. The app shows the `active`
-words only, worst `miss_rate` first, `per_session` of them.
+words only, the first `per_session` of them, in this order:
+
+1. `miss_rate` descending — worst first, and a word without a usable number
+   sorts after every word that has one;
+2. `added` descending, again after every word that has a usable date;
+3. `flagged_on` descending;
+4. `id` ascending.
+
+All four keys, in that order: `miss_rate` is rounded to two decimals, so ties
+are the normal case and the rest of the list decides which words a sitting
+actually contains. **The app's order is the authoritative one** — it is what
+makes a run reproducible from the same zip — and the order `words.json`
+happens to be written in means nothing.
 
 ### `sayit/attempts/<ts>_<id>.m4a` and `.json` — app → coach
 
 One recording of the whole sentence and one sidecar per attempt. `<ts>` is the
 basic UTC form `20260913T180402Z` (no colons: Android external storage and Drive
-reject them) and `<id>` is the word id. **The two file names must agree
-exactly**: the coach matches audio to sidecar by identical stem, and a sidecar
-with no audio beside it is skipped. The audio is written first, so a half-synced
-attempt is never scored against a missing recording.
+reject them) and `<id>` is the word id, exactly as `words.json` spells it
+(`[A-Za-z0-9._-]`, 1 to 64 characters, no leading dot, never sanitised).
+**The two file names must agree exactly**: the coach matches audio to sidecar
+by identical stem, and a sidecar with no audio beside it is skipped. The audio
+is written first, so a half-synced attempt is never scored against a missing
+recording.
 
 ```json
 {"version": 1, "id": "imperialist", "word": "imperialist",
@@ -345,6 +370,13 @@ already appears in `results.json` — the attempt has been scored, so the bytes
 are no longer needed on the phone or in Drive. The sidecars stay: they are tiny
 and they are the coach's record that the attempt was already handled. Settings
 says so.
+
+The same sweep also deletes attempt **audio with no sidecar beside it** once it
+is more than a day old. That is the wreckage of a write whose sidecar never
+landed: nobody can score it, the 30-day rule can never reach it (that rule asks
+whether the sidecar has been scored), and it would otherwise sit in Drive for
+ever as an error in `scripts/validate-contract.py`. A day is long enough that a
+sidecar still syncing down is never mistaken for a lost one.
 
 ## `catalog-version.txt`
 

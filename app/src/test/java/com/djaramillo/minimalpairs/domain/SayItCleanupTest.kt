@@ -186,4 +186,60 @@ class SayItCleanupTest {
     fun retentionIsThirtyDays() {
         assertEquals(30L, SayItCleanup.RETAIN_DAYS)
     }
+
+    // ---- orphaned audio --------------------------------------------------
+
+    @Test
+    fun audioWithNoSidecarGoesOnceItIsMoreThanADayOld() {
+        val names = listOf(audio("imperialist"))
+        assertEquals(names, SayItCleanup.orphans(names, at(2)))
+        assertEquals(names, SayItCleanup.orphans(names, started.plus(Duration.ofHours(25))))
+    }
+
+    @Test
+    fun audioWithNoSidecarIsKeptWhileTheSidecarCouldStillBeSyncing() {
+        val names = listOf(audio("imperialist"))
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(names, started.plus(Duration.ofHours(1))))
+        // Exactly a day is kept: the rule is strictly more, as the retention one is.
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(names, started.plus(Duration.ofHours(24))))
+        // A timestamp in the future is not evidence of anything.
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(names, started.minusSeconds(1)))
+    }
+
+    @Test
+    fun audioWithItsSidecarBesideItIsNeverAnOrphan() {
+        val names = listOf(audio("imperialist"), sidecar("imperialist"))
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(names, at(400)))
+        // The same word's sidecar from another attempt does not cover this one.
+        val other = listOf(audio("imperialist"), sidecar("imperialist", at(1)))
+        assertEquals(listOf(audio("imperialist")), SayItCleanup.orphans(other, at(400)))
+    }
+
+    @Test
+    fun onlyAttemptAudioIsEverAnOrphan() {
+        val names = listOf(
+            SayItNames.sidecarName(ts, "imperialist"),
+            "words.json",
+            "sayit.zip",
+            "imperialist.m4a",
+            ts + "_imperialist.ogg",
+            "20260931T100000Z_imperialist.m4a",
+        )
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(names, at(400)))
+        assertEquals(emptyList<String>(), SayItCleanup.orphans(emptyList(), at(400)))
+    }
+
+    @Test
+    fun aMixedFolderOrphansOnlyTheAudioThatLostItsSidecar() {
+        val orphan = audio("catastrophe")
+        val paired = audio("imperialist")
+        val fresh = audio("um_brella", at(30))
+        val names = listOf(orphan, paired, sidecar("imperialist"), fresh, "sayit.zip")
+        assertEquals(listOf(orphan), SayItCleanup.orphans(names, at(30).plus(Duration.ofHours(1))))
+    }
+
+    @Test
+    fun theOrphanWaitIsOneDay() {
+        assertEquals(24L, SayItCleanup.ORPHAN_HOURS)
+    }
 }

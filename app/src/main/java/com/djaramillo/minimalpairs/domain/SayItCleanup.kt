@@ -18,9 +18,14 @@ import java.time.Instant
  *
  * Only the audio goes. The sidecar is a few hundred bytes and stays as the
  * record of the attempt, and an unscored recording is never deleted however
- * old, because it is the one thing that could be lost for good. This is also
- * the only deletion the app ever makes in the folder for this mode: the whole
- * of `sayit.zip` belongs to the coach and is opened read-only.
+ * old, because it is the one thing that could be lost for good.
+ *
+ * [orphans] is the one exception, and for the same reason: audio with no
+ * sidecar cannot be scored by anyone, so keeping it loses nothing and costs
+ * the owner's Drive space and an error in the coach's checker for ever.
+ *
+ * These two are the only deletions the app ever makes in the folder for this
+ * mode: the whole of `sayit.zip` belongs to the coach and is opened read-only.
  *
  * No Android types, unit tested on the JVM.
  */
@@ -28,6 +33,16 @@ object SayItCleanup {
 
     /** Scored audio older than this many days may go. */
     const val RETAIN_DAYS = 30L
+
+    /**
+     * Audio with no sidecar may go once it is older than this many hours.
+     *
+     * The wait is there because sync delivers the two halves separately: a
+     * recording written minutes ago may simply be waiting for its sidecar to
+     * come down from Drive. A day is far longer than that and far shorter than
+     * the retention rule, which can never reach these files at all.
+     */
+    const val ORPHAN_HOURS = 24L
 
     /**
      * Word id to the set of sidecar file names the coach has scored, taken
@@ -68,6 +83,31 @@ object SayItCleanup {
             if (Duration.between(started, now) <= retain) return@filter false
             val files = scored[id] ?: return@filter false
             SayItNames.sidecarName(ts, id) in files
+        }
+    }
+
+    /**
+     * Of [names] (one folder listing of `sayit/attempts/`), the recordings with
+     * no sidecar beside them that are older than [ORPHAN_HOURS] at [now], in
+     * the order they were given.
+     *
+     * These are the leftovers of a write whose sidecar never landed — the
+     * delete that was meant to undo it failed, or the process died between the
+     * two files. The coach cannot score audio it has no sidecar for and flags
+     * it as an error on every run, and [deletable] can never reach it, because
+     * that rule asks whether the sidecar has been scored and an attempt with no
+     * sidecar never is. So this is the only rule that can ever collect them.
+     */
+    fun orphans(names: List<String>, now: Instant): List<String> {
+        val wait = Duration.ofHours(ORPHAN_HOURS)
+        val sidecars = names.filterTo(HashSet()) { SayItNames.isAttemptSidecar(it) }
+        return names.filter { name ->
+            if (!SayItNames.isAttemptAudio(name)) return@filter false
+            val ts = SayItNames.timestampOf(name) ?: return@filter false
+            val id = SayItNames.idOf(name) ?: return@filter false
+            if (SayItNames.sidecarName(ts, id) in sidecars) return@filter false
+            val started = SayItNames.instantOf(ts) ?: return@filter false
+            Duration.between(started, now) > wait
         }
     }
 }

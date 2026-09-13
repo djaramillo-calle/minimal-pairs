@@ -67,7 +67,7 @@ for text in blocks:
         os.makedirs(d, exist_ok=True)
         from datetime import datetime
         stem = datetime.strptime(obj["started"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y%m%dT%H%M%SZ")
-        stem += "_" + re.sub(r"[^A-Za-z0-9._-]", "_", obj["id"])[:80]
+        stem += "_" + obj["id"]          # the id is used verbatim, never sanitised
         with open(os.path.join(d, stem + ".json"), "w", encoding="utf-8") as f:
             json.dump(obj, f)
         with open(os.path.join(d, stem + ".m4a"), "wb") as f:

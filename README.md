@@ -50,6 +50,10 @@ Release; the app offers the download on first run. The release APK is about
   with full feedback you can tap either word to hear it.
 - **Summary** – overall score, per contrast, mean reaction time, and the name
   of the session file that was written.
+- **Say it** – the sentence drill the coach sends in `sayit.zip`: play the model
+  clip, read the same sentence aloud, and the recording goes back to the folder
+  for the cloud to score. The phone never scores and never uses the network for
+  it, and it says so when no list has arrived yet.
 - **Settings** – data folder picker and status, the coach plan (read-only), a
   manual override, clip pack status and download, versions.
 

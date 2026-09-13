@@ -5,9 +5,12 @@ import com.djaramillo.minimalpairs.domain.SayItZip
 import com.djaramillo.minimalpairs.domain.model.SayItResults
 import com.djaramillo.minimalpairs.domain.model.SayItWords
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
 
@@ -42,6 +45,20 @@ class SayItPack(private val filesDir: File) {
     private val stamp: File get() = File(dir, ".stamp")
 
     /**
+     * One refresh at a time. This class is a process-wide singleton and both
+     * its callers are live on the everyday path — the launch sync reads the
+     * list while the owner taps "Say it" — so without this two unpacks would
+     * run together, each deleting the other's staging tree and racing to
+     * rename it over [dir]. The loser can publish a pack whose clips or
+     * `results.json` are missing under a stamp that matches the folder's zip,
+     * which the fast path below would then trust forever.
+     */
+    private val gate = Mutex()
+
+    /** Names one run's scratch files apart from a run that died before cleaning up. */
+    private val runs = AtomicLong()
+
+    /**
      * What one refresh found. [words] and [results] are null when the entry was
      * absent or unparsable; [message] then says which, for Settings. [present]
      * is whether a `sayit.zip` was there at all, which is the difference
@@ -62,45 +79,59 @@ class SayItPack(private val filesDir: File) {
      * reused as it stands. When it has changed, it is unpacked into a sibling
      * directory and swapped in, so a failure half way through leaves the
      * previous good copy in place rather than a half pack.
+     *
+     * Calls are serialised by [gate]: a second caller waits and then sees the
+     * first one's finished work through the unchanged-zip fast path.
      */
     suspend fun refresh(folder: DataFolder): Pack = withContext(Dispatchers.IO) {
+        gate.withLock { refreshLocked(folder) }
+    }
+
+    private suspend fun refreshLocked(folder: DataFolder): Pack {
         val info = folder.sayItZipInfo()
-            ?: return@withContext readUnpacked(present = false, message = null)
+            ?: return readUnpacked(present = false, message = null)
+        if (!info.readable) {
+            return readUnpacked(
+                present = true,
+                message = "the folder would not say anything about sayit.zip; the list was left as it was",
+            )
+        }
         if (info.bytes > SayItZip.MAX_ZIP_BYTES) {
-            return@withContext readUnpacked(
+            return readUnpacked(
                 present = true,
                 message = "sayit.zip is ${info.bytes / (1024 * 1024)} MB, which is far past anything the coach sends; it was not unpacked",
             )
         }
         val want = "${info.bytes}:${info.modified}"
         if (currentStamp() == want && File(dir, SayItZip.WORDS).isFile) {
-            return@withContext readUnpacked(present = true, message = null)
+            return readUnpacked(present = true, message = null)
         }
-        val staging = File(filesDir, "sayit.unpacking")
-        val copy = File(filesDir, "sayit.zip.part")
+        val run = "${System.currentTimeMillis()}-${runs.incrementAndGet()}"
+        val staging = File(filesDir, STAGING_PREFIX + run)
+        val copy = File(filesDir, COPY_PREFIX + run)
+        sweepScratch(keep = setOf(staging.name, copy.name))
         try {
             if (!folder.copySayItZip(copy)) {
-                return@withContext readUnpacked(present = true, message = "sayit.zip could not be read from the folder")
+                return readUnpacked(present = true, message = "sayit.zip could not be read from the folder")
             }
-            deleteTree(staging)
             if (!staging.mkdirs()) {
-                return@withContext readUnpacked(present = true, message = "the phone would not make room to unpack sayit.zip")
+                return readUnpacked(present = true, message = "the phone would not make room to unpack sayit.zip")
             }
             val trouble = unpack(copy, staging)
             if (trouble != null) {
                 deleteTree(staging)
-                return@withContext readUnpacked(present = true, message = trouble)
+                return readUnpacked(present = true, message = trouble)
             }
             File(staging, ".stamp").writeText(want)
             deleteTree(dir)
             if (!staging.renameTo(dir)) {
                 deleteTree(staging)
-                return@withContext readUnpacked(present = true, message = "the unpacked sayit.zip could not be put in place")
+                return readUnpacked(present = true, message = "the unpacked sayit.zip could not be put in place")
             }
-            readUnpacked(present = true, message = null)
+            return readUnpacked(present = true, message = null)
         } catch (e: Exception) {
             deleteTree(staging)
-            readUnpacked(present = true, message = "sayit.zip could not be unpacked: ${e.message?.take(100)}")
+            return readUnpacked(present = true, message = "sayit.zip could not be unpacked: ${e.message?.take(100)}")
         } finally {
             copy.delete()
         }
@@ -127,6 +158,14 @@ class SayItPack(private val filesDir: File) {
      * itself, so a declared path can never decide where bytes land, and the
      * running total is counted as it is written rather than taken from the
      * zip's own header.
+     *
+     * An entry over [SayItZip.MAX_ENTRY_BYTES] is refused on its own, as the
+     * contract says: its part file goes and the rest of the payload is still
+     * unpacked, so one oversized clip costs the Play model button on one word
+     * rather than the whole new word list. Its bytes stay in the running
+     * total, so a zip bomb of such entries still trips the total cap, which is
+     * the only breach worth abandoning the unpack for: continuing there would
+     * fill the phone.
      */
     private fun unpack(zip: File, into: File): String? {
         val clips = File(into, "clips")
@@ -151,6 +190,7 @@ class SayItPack(private val filesDir: File) {
                     // file must still resolve inside the directory we made.
                     if (!target.canonicalPath.startsWith(into.canonicalPath + File.separator)) continue
                     var written = 0L
+                    var oversized = false
                     z.getInputStream(entry).use { source ->
                         target.outputStream().use { out ->
                             val buffer = ByteArray(64 * 1024)
@@ -159,13 +199,18 @@ class SayItPack(private val filesDir: File) {
                                 if (n < 0) break
                                 written += n
                                 total += n
-                                if (written > SayItZip.MAX_ENTRY_BYTES || total > SayItZip.MAX_TOTAL_BYTES) {
+                                if (total > SayItZip.MAX_TOTAL_BYTES) {
                                     return "sayit.zip unpacks to more than the app will hold; it was left alone"
+                                }
+                                if (written > SayItZip.MAX_ENTRY_BYTES) {
+                                    oversized = true
+                                    break
                                 }
                                 out.write(buffer, 0, n)
                             }
                         }
                     }
+                    if (oversized) target.delete()
                 }
             }
         } catch (e: ZipException) {
@@ -197,6 +242,21 @@ class SayItPack(private val filesDir: File) {
         }
     }
 
+    /**
+     * Remove the scratch files of runs that are over, keeping [keep] — this
+     * run's own. Scratch names carry a run marker so that two runs can never
+     * share one, which means a run killed part way through (the process died,
+     * the phone rebooted) leaves a directory nothing would otherwise collect.
+     */
+    private fun sweepScratch(keep: Set<String>) {
+        val kids = try { filesDir.listFiles() } catch (e: SecurityException) { null } ?: return
+        for (f in kids) {
+            val name = f.name
+            if (name in keep) continue
+            if (name.startsWith(STAGING_PREFIX) || name.startsWith(COPY_PREFIX)) deleteTree(f)
+        }
+    }
+
     private fun deleteTree(f: File) {
         try {
             f.walkBottomUp().forEach { it.delete() }
@@ -204,5 +264,13 @@ class SayItPack(private val filesDir: File) {
             // A leftover directory costs disk, never correctness: the next
             // refresh writes into a fresh staging directory either way.
         }
+    }
+
+    private companion object {
+        /** `filesDir/sayit.unpacking<run>`: the tree being filled before the swap. */
+        const val STAGING_PREFIX = "sayit.unpacking"
+
+        /** `filesDir/sayit.zip.part<run>`: the local copy of the folder's zip. */
+        const val COPY_PREFIX = "sayit.zip.part"
     }
 }
