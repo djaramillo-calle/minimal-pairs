@@ -7,9 +7,13 @@ import android.provider.DocumentsContract
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.documentfile.provider.DocumentFile
 import com.djaramillo.minimalpairs.domain.AppJson
+import com.djaramillo.minimalpairs.domain.SayItCleanup
+import com.djaramillo.minimalpairs.domain.SayItNames
 import com.djaramillo.minimalpairs.domain.TimeUtil
+import com.djaramillo.minimalpairs.domain.model.AttemptSidecar
 import com.djaramillo.minimalpairs.domain.model.LearnerState
 import com.djaramillo.minimalpairs.domain.model.Plan
+import com.djaramillo.minimalpairs.domain.model.SayItResults
 import com.djaramillo.minimalpairs.domain.model.SessionRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -417,6 +421,216 @@ class DataFolder(context: Context, private val prefs: Prefs) {
 
     /** A zero-length document (a `createFile` whose content write failed) counts as missing. */
     private fun isEmptyFile(doc: DocumentFile): Boolean = try { doc.length() == 0L } catch (e: Exception) { false }
+
+    // ---- Say it ---------------------------------------------------------
+
+    /**
+     * The Say-it sentence drill (docs/CONTRACT.md, "`sayit.zip`"). Everything
+     * below obeys one rule: the coach owns `sayit.zip` — `words.json`,
+     * `results.json` and every model clip live inside it — and this class opens
+     * it **read-only**, copying it out for [SayItPack] to unpack into private
+     * storage. It has no write path to it at all: no create, no rename, no
+     * delete. The only files it ever creates are its own new
+     * `sayit/attempts/<ts>_<id>.m4a` and `.json`, and the one deletion it makes
+     * is the 30-day retention sweep in [sweepSayItAttempts], which removes
+     * scored attempt audio and nothing else.
+     *
+     * There is no network call and no scoring anywhere in this section: the
+     * app records, writes and displays, the cloud scores.
+     */
+
+    /** Size and modification time of `sayit.zip`, so a refresh can tell it has not changed. */
+    data class SayItZipInfo(val bytes: Long, val modified: Long)
+
+    /** `sayit.zip` as the folder currently has it, or null when it is not there. */
+    suspend fun sayItZipInfo(): SayItZipInfo? = withContext(Dispatchers.IO) {
+        val doc = sayItZip() ?: return@withContext null
+        try {
+            SayItZipInfo(doc.length(), doc.lastModified())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Copy `sayit.zip` out of the folder into [dest], read-only.
+     *
+     * It is copied rather than read in place because it is unpacked with
+     * `ZipFile`, which needs a seekable local file, and because the folder is a
+     * two-way sync: a zip that is rewritten under us half way through a read is
+     * ordinary here, and a local copy makes that a failed copy rather than a
+     * corrupt unpack. Returns false on any trouble, leaving no half file.
+     */
+    suspend fun copySayItZip(dest: File): Boolean = withContext(Dispatchers.IO) {
+        val doc = sayItZip() ?: return@withContext false
+        try {
+            dest.parentFile?.mkdirs()
+            val copied = resolver.openInputStream(doc.uri)?.use { input ->
+                dest.outputStream().use { out -> input.copyTo(out); out.flush() }
+                true
+            } ?: false
+            if (!copied) dest.delete()
+            copied
+        } catch (e: Exception) {
+            dest.delete()
+            false
+        }
+    }
+
+    /**
+     * The first second at or after [started] whose attempt stem is free, so an
+     * attempt made in a second that already has one (the wall clock stepped
+     * back, or two attempts in one second) gets its own name and its `started`
+     * moves with it — the name and the timestamp never disagree
+     * (docs/CONTRACT.md).
+     *
+     * A stem counts as taken when **either** half is there, audio or sidecar:
+     * the coach pairs them by stem, so reusing a stem whose partner survived
+     * would splice two attempts into one.
+     */
+    suspend fun freeAttemptStart(id: String, started: java.time.Instant): java.time.Instant =
+        withContext(Dispatchers.IO) {
+            val taken = attemptFileNames().mapNotNullTo(HashSet<String>()) { name ->
+                if (!SayItNames.isAttemptAudio(name) && !SayItNames.isAttemptSidecar(name)) return@mapNotNullTo null
+                val ts = SayItNames.timestampOf(name) ?: return@mapNotNullTo null
+                val word = SayItNames.idOf(name) ?: return@mapNotNullTo null
+                SayItNames.stem(ts, word)
+            }
+            // freeStart asks about the stem, so one question covers both halves.
+            SayItNames.freeStart(started, id) { stem -> stem in taken }
+        }
+
+    /**
+     * Write one attempt: `sayit/attempts/<ts>_<id>.m4a` first, then the
+     * sidecar `<ts>_<id>.json`. Returns the stem written, or null.
+     *
+     * The audio goes first because sync can deliver the two halves in either
+     * order and the coach scores a stem only once both are there
+     * (docs/CONTRACT.md). A half attempt must never reach it, so if the
+     * sidecar fails the audio is deleted again and this returns null. `<ts>`
+     * comes from [sidecar]'s own `started`, which is why the two can never
+     * drift apart. An existing stem is a caller bug — [freeAttemptStart] is
+     * there to avoid it — and is refused rather than overwritten, because an
+     * attempt already in the folder may be one the coach has not scored yet.
+     */
+    suspend fun writeSayItAttempt(audio: File, sidecar: AttemptSidecar): String? = withContext(Dispatchers.IO) {
+        val id = sidecar.id
+        if (!SayItNames.isUsableId(id)) return@withContext null
+        val instant = TimeUtil.parseIso(sidecar.started) ?: return@withContext null
+        val ts = TimeUtil.sessionIdFrom(instant)
+        val audioName = SayItNames.audioName(ts, id)
+        val sidecarName = SayItNames.sidecarName(ts, id)
+        val text = AppJson.writer.encodeToString(AttemptSidecar.serializer(), sidecar)
+        val readable = try { audio.isFile && audio.length() > 0L } catch (e: SecurityException) { false }
+        if (!readable) return@withContext null
+        var written: DocumentFile? = null
+        try {
+            val dir = attemptsDir(create = true) ?: return@withContext null
+            if (findChild(dir, audioName) != null || findChild(dir, sidecarName) != null) return@withContext null
+            val audioDoc = dir.createFile(MIME_BINARY, audioName) ?: return@withContext null
+            written = audioDoc
+            if (!copyInto(audioDoc.uri, audio)) {
+                audioDoc.delete()
+                return@withContext null
+            }
+            val sidecarDoc = dir.createFile(MIME_BINARY, sidecarName)
+            if (sidecarDoc == null || !writeText(sidecarDoc.uri, text)) {
+                sidecarDoc?.delete()
+                audioDoc.delete()
+                return@withContext null
+            }
+            SayItNames.stem(ts, id)
+        } catch (e: Exception) {
+            try { written?.delete() } catch (e2: Exception) { /* the orphan sweep is best effort */ }
+            null
+        }
+    }
+
+    /**
+     * The retention sweep (docs/CONTRACT.md): delete the attempt audio that is
+     * more than 30 days old **and** already scored in [results]. Returns how
+     * many files went, or null when the folder is unavailable.
+     *
+     * `SayItCleanup.deletable` decides; this only carries the decision out,
+     * and it re-checks that every name is attempt audio before deleting. The
+     * sidecars stay as the record of the attempt, an unscored recording is
+     * never deleted however old, and nothing outside `sayit/attempts/` is
+     * touched: `clips/`, `words.json` and `results.json` are the coach's.
+     */
+    suspend fun sweepSayItAttempts(results: SayItResults?, now: java.time.Instant): Int? =
+        withContext(Dispatchers.IO) {
+            try {
+                if (root() == null) return@withContext null
+                val dir = attemptsDir(create = false) ?: return@withContext 0
+                val present = dir.listFiles().filter { it.name != null }.associateBy { it.name!! }
+                var removed = 0
+                for (name in SayItCleanup.deletable(present.keys.toList(), results, now)) {
+                    if (!SayItNames.isAttemptAudio(name)) continue
+                    val doc = present[name] ?: continue
+                    val gone = try { doc.delete() } catch (e: Exception) { false }
+                    if (gone) removed++
+                }
+                removed
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    // ---- Say it helpers -------------------------------------------------
+
+    // ---- Say it helpers -------------------------------------------------
+
+    /** `sayit.zip` in the folder root, or null. Never created by the app. */
+    private fun sayItZip(): DocumentFile? = try {
+        val root = root()
+        if (root == null) null else findChild(root, FolderLayout.SAYIT_ZIP)?.takeIf { it.isFile }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * `sayit/attempts/`, the one folder the app owns. With [create] it and its
+     * `sayit/` parent are made when missing; without, a missing folder is null
+     * and the caller treats it as "no attempts".
+     */
+    private fun attemptsDir(create: Boolean): DocumentFile? = try {
+        val root = root()
+        val sayit = if (root == null) null else {
+            findChild(root, FolderLayout.SAYIT)?.takeIf { it.isDirectory }
+                ?: if (create) root.createDirectory(FolderLayout.SAYIT) else null
+        }
+        if (sayit == null) null else {
+            findChild(sayit, FolderLayout.SAYIT_ATTEMPTS)?.takeIf { it.isDirectory }
+                ?: if (create) sayit.createDirectory(FolderLayout.SAYIT_ATTEMPTS) else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Every name in `sayit/attempts/`, listed once; empty when the folder is unavailable. */
+    private fun attemptFileNames(): List<String> = try {
+        attemptsDir(create = false)?.listFiles()?.mapNotNull { it.name } ?: emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /**
+     * Stream [source] into [uri]. An attempt is up to 20 seconds of AAC, so it
+     * is copied rather than read into memory; the mode dance matches
+     * [writeText], where some providers reject `"wt"`.
+     */
+    private fun copyInto(uri: Uri, source: File): Boolean = try {
+        val out = try {
+            resolver.openOutputStream(uri, "wt")
+        } catch (e: FileNotFoundException) {
+            null
+        } catch (e: IllegalArgumentException) {
+            resolver.openOutputStream(uri)
+        } ?: resolver.openOutputStream(uri)
+        out?.use { o -> source.inputStream().use { it.copyTo(o) }; o.flush(); true } ?: false
+    } catch (e: Exception) {
+        false
+    }
 
     companion object {
         const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"

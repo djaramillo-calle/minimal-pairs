@@ -2,7 +2,8 @@ package com.djaramillo.minimalpairs.storage
 
 /**
  * Pure name logic for the data folder (docs/DESIGN.md): the layout is always
- * `Documents/MinimalPairs/{plan.json, state.json, catalog-version.txt, sessions/}`.
+ * `Documents/MinimalPairs/{plan.json, state.json, catalog-version.txt, sessions/}`
+ * plus `sayit.zip` and `sayit/attempts/` for the Say-it drill (docs/CONTRACT.md).
  * No Android types, unit tested on the JVM.
  */
 object FolderLayout {
@@ -13,6 +14,19 @@ object FolderLayout {
     const val STATE_TMP = "state.json.tmp"
     const val CATALOG_VERSION = "catalog-version.txt"
     const val SESSIONS = "sessions"
+
+    // ---- Say it ---------------------------------------------------------
+
+    /**
+     * The Say-it names (docs/CONTRACT.md). The coach ships one file,
+     * [SAYIT_ZIP], and the app reads it and never writes it; the app owns
+     * `sayit/attempts/` and nothing else in the folder for this mode. These are
+     * the coach interface, so they live here as constants rather than being
+     * spelled out at each call site.
+     */
+    const val SAYIT_ZIP = "sayit.zip"
+    const val SAYIT = "sayit"
+    const val SAYIT_ATTEMPTS = "attempts"
 
     /**
      * Which subfolder to create inside the picked tree, or null to use the tree
