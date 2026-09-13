@@ -45,6 +45,7 @@ fun HomeScreen(
     download: ClipDownloader.State,
     onStart: () -> Unit,
     onSettings: () -> Unit,
+    onSayIt: () -> Unit,
     onDownload: () -> Unit,
 ) {
     Scaffold(
@@ -84,6 +85,27 @@ fun HomeScreen(
                     Text(stringResource(R.string.home_start), style = MaterialTheme.typography.headlineSmall)
                 }
             }
+
+            // The Say-it sentence mode (docs/CONTRACT.md, "`sayit.zip`"): the
+            // coach's flagged sentences, read aloud into the synced folder.
+            // Second, because the perception drill is still the day's main work.
+            OutlinedButton(
+                onClick = onSayIt,
+                enabled = !ui.loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+            ) {
+                Text(stringResource(R.string.sayit_sentence_start), style = MaterialTheme.typography.titleLarge)
+            }
+            Text(
+                if (ui.sayItWords > 0) stringResource(R.string.sayit_sentence_home_count, ui.sayItWords)
+                else stringResource(R.string.sayit_sentence_home_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Stat(stringResource(R.string.home_streak), stringResource(R.string.home_streak_days, ui.streakDays))

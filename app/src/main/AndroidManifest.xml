@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Clip-pack download from GitHub Releases, rendering with the learner's own Azure key,
-         and the Say-it assessment calls (docs/DESIGN.md). -->
+    <!-- Clip-pack download from GitHub Releases and rendering the pack with the learner's own
+         Azure key (docs/DESIGN.md). The Say-it mode uses no network at all: it plays a clip the
+         coach rendered, records, writes the file, and the cloud scores it — the key never
+         reaches the phone for it (docs/CONTRACT.md, "sayit.zip"). -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- The Say-it block records the learner's words (docs/DESIGN.md "Say it"); requested at
-         runtime when the block first starts, and the block is skipped when denied. -->
+    <!-- Say it records the learner reading a whole sentence (docs/CONTRACT.md). Asked for at
+         runtime the first time he taps record, with a rationale; refused, the mode degrades to
+         listening and reading along rather than disappearing, and never asks again by itself. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- RECORD_AUDIO would otherwise imply a required microphone and keep the app off devices
-         that have none; the Say-it block is skipped gracefully there (docs/DESIGN.md "Say it"). -->
+         that have none; Say it degrades gracefully there and the drill is unaffected. -->
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application

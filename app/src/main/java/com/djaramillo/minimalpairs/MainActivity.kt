@@ -22,10 +22,12 @@ import com.djaramillo.minimalpairs.ui.Screen
 import com.djaramillo.minimalpairs.ui.SettingsScreen
 import com.djaramillo.minimalpairs.ui.SummaryScreen
 import com.djaramillo.minimalpairs.ui.TrialScreen
+import com.djaramillo.minimalpairs.ui.sayit.SayItRoute
 
 /**
  * Single activity; the screen state machine lives in [AppViewModel.screen]
- * (Home → Trial → Summary → Home, Home ↔ Settings).
+ * (Home → Trial → Summary → Home, Home ↔ Settings, Home ↔ the Say-it
+ * sentence mode).
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,6 +72,7 @@ private fun App(vm: AppViewModel = viewModel()) {
                 download = download,
                 onStart = vm::startSession,
                 onSettings = vm::openSettings,
+                onSayIt = vm::openSayItSentences,
                 onDownload = vm::startDownload,
             )
         }
@@ -90,6 +93,12 @@ private fun App(vm: AppViewModel = viewModel()) {
             val summary by vm.summary.collectAsStateWithLifecycle()
             val s = summary
             if (s != null) SummaryScreen(s, onHome = vm::goHome, onAgain = vm::startSession)
+        }
+        Screen.SENTENCES -> {
+            // The mode owns its own ViewModel, its own microphone permission request
+            // and its own lifecycle handling (docs/CONTRACT.md, "`sayit.zip`"), so
+            // nothing of it leaks into the perception drill's state machine.
+            SayItRoute(onHome = vm::goHome, onSettings = vm::openSettings)
         }
         Screen.SETTINGS -> {
             val settings by vm.settings.collectAsStateWithLifecycle()

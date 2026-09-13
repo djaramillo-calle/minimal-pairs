@@ -16,6 +16,7 @@ import com.djaramillo.minimalpairs.domain.PlannedTrial
 import com.djaramillo.minimalpairs.domain.RecordBuilder
 import com.djaramillo.minimalpairs.domain.SessionScheduler
 import com.djaramillo.minimalpairs.domain.StateUpdater
+import com.djaramillo.minimalpairs.domain.SayItPlanner
 import com.djaramillo.minimalpairs.domain.TimeUtil
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.domain.model.EffectivePlan
@@ -42,7 +43,12 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 
 /** The screens; a tiny state machine held in [AppViewModel.screen]. */
-enum class Screen { HOME, TRIAL, SUMMARY, SETTINGS }
+/**
+ * The screens. [SENTENCES] is the Say-it sentence mode, which runs on its own
+ * ViewModel and its own files (docs/CONTRACT.md, "`sayit.zip`"); this enum only
+ * says which one is on top.
+ */
+enum class Screen { HOME, TRIAL, SUMMARY, SETTINGS, SENTENCES }
 
 data class ContrastRow(
     val id: String,
@@ -77,6 +83,10 @@ data class HomeUi(
     val weekMinutes: Int = 0,
     val weeklyTarget: Int = 0,
     val longestStreak: Int = 0,
+    /** Active words waiting in the coach's `sayit.zip`; 0 when it has not arrived. */
+    val sayItWords: Int = 0,
+    /** Why there are none, when the zip is there but unusable. */
+    val sayItMessage: String? = null,
 )
 
 sealed class TrialPhase {
@@ -185,6 +195,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var folderStatus: DataFolder.Status = DataFolder.Status.NotChosen
     /** Set once [bootstrap] has run (successfully or not); [onResume] does nothing before that. */
     private var bootstrapped = false
+    /** What Home says about the Say-it sentence mode: active words waiting, and why there are none. */
+    private var sayItWords = 0
+    private var sayItMessage: String? = null
 
     // Session runtime.
     private var scheduler: SessionScheduler? = null
@@ -263,6 +276,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         folder.writeCatalogVersion(cat.version)
         folder.republishMissingSessions()
         folderStatus = folder.status()
+        readSayItList()
+    }
+
+    /**
+     * How many words the Say-it sentence mode has waiting, for the Home button.
+     * Read-only on the coach's zip, and a missing one is simply none — the mode
+     * never invents a word (docs/CONTRACT.md).
+     */
+    private suspend fun readSayItList() {
+        val payload = container.sayItPack.refresh(folder)
+        sayItWords = SayItPlanner.ordered(payload.words, payload.results).size
+        sayItMessage = payload.message
     }
 
     private fun recompute() {
@@ -315,6 +340,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             weekMinutes = weekMinutes(state.practice.days, TimeUtil.utcDay(Instant.now())),
             weeklyTarget = plan.weeklyMinutesTarget,
             longestStreak = state.practice.longestStreak,
+            sayItWords = sayItWords,
+            sayItMessage = sayItMessage,
         )
         _settings.value = _settings.value.copy(
             folderStatus = folderStatus,
@@ -341,6 +368,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ---- navigation -------------------------------------------------------
+
+    /**
+     * Open the Say-it sentence mode (docs/CONTRACT.md, "`sayit.zip`"). It runs
+     * on its own ViewModel and its own files, so there is nothing to set up
+     * here: this only moves the screen.
+     */
+    fun openSayItSentences() { _screen.value = Screen.SENTENCES }
 
     fun openSettings() { _screen.value = Screen.SETTINGS }
 

@@ -3,7 +3,9 @@ package com.djaramillo.minimalpairs
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.djaramillo.minimalpairs.audio.AttemptRecorder
 import com.djaramillo.minimalpairs.audio.Player
+import com.djaramillo.minimalpairs.audio.SentencePlayer
 import com.djaramillo.minimalpairs.clips.ClipDownloader
 import com.djaramillo.minimalpairs.clips.ClipPack
 import com.djaramillo.minimalpairs.clips.PackRenderer
@@ -11,6 +13,7 @@ import com.djaramillo.minimalpairs.domain.AppJson
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.storage.DataFolder
 import com.djaramillo.minimalpairs.storage.Prefs
+import com.djaramillo.minimalpairs.storage.SayItPack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +34,15 @@ class AppContainer private constructor(context: Context) {
     /** Outlives any screen: long jobs (rendering the pack) run here, not in a ViewModel. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val player = Player(app)
+
+    /** The Say-it sentence microphone: one whole sentence per recording, straight to an `.m4a` for the coach. */
+    val attemptRecorder = AttemptRecorder(app)
+
+    /** Plays whole sentences back to back: the coach's model clip, then his own attempt. */
+    val sentencePlayer = SentencePlayer(app)
+
+    /** The unpacked `sayit.zip` (docs/CONTRACT.md); the app reads it and never writes it. */
+    val sayItPack = SayItPack(app.filesDir)
 
     val appVersion: String by lazy {
         try {
