@@ -111,7 +111,7 @@ class SayItPack(private val filesDir: File) {
         val copy = File(filesDir, COPY_PREFIX + run)
         sweepScratch(keep = setOf(staging.name, copy.name))
         try {
-            if (!folder.copySayItZip(copy)) {
+            if (!folder.copySayItZip(copy, SayItZip.MAX_ZIP_BYTES)) {
                 return readUnpacked(present = true, message = "sayit.zip could not be read from the folder")
             }
             if (!staging.mkdirs()) {

@@ -505,14 +505,31 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * two-way sync: a zip that is rewritten under us half way through a read is
      * ordinary here, and a local copy makes that a failed copy rather than a
      * corrupt unpack. Returns false on any trouble, leaving no half file.
+     *
+     * [maxBytes] is counted as the bytes arrive, not taken from the size the
+     * provider declares. That declared size is the caller's cheap early-out,
+     * but it is a claim about a file on the other side of a two-way sync: a
+     * provider that reports a small file and then streams without end would
+     * otherwise fill the phone here, one buffer at a time.
      */
-    suspend fun copySayItZip(dest: File): Boolean = withContext(Dispatchers.IO) {
+    suspend fun copySayItZip(dest: File, maxBytes: Long): Boolean = withContext(Dispatchers.IO) {
         val doc = sayItZip() ?: return@withContext false
         try {
             dest.parentFile?.mkdirs()
             val copied = resolver.openInputStream(doc.uri)?.use { input ->
-                dest.outputStream().use { out -> input.copyTo(out); out.flush() }
-                true
+                dest.outputStream().use { out ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        if (total > maxBytes) return@use false
+                        out.write(buffer, 0, n)
+                    }
+                    out.flush()
+                    true
+                }
             } ?: false
             if (!copied) dest.delete()
             copied
