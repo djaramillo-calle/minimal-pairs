@@ -41,18 +41,54 @@ object SayItNames {
     private data class Parts(val ts: String, val id: String)
 
     /**
-     * Whether `words[].id` can be used at all: `[A-Za-z0-9._-]`, 1 to 64
-     * characters, no leading dot.
-     *
-     * The id becomes a file name and a key in `results.json`, so `""`, `".."`,
-     * `"a/b"`, a hidden `.name` and anything longer than 64 characters are
-     * refused, and the coach's entry is ignored rather than turned into a path
-     * the app never meant to write.
+     * Whether a `<ts>_<id>` file name's id half is one of ours: `[A-Za-z0-9._-]`,
+     * 1 to 64 characters, no leading dot. This is about **names the app wrote**,
+     * not about which words it will practise — see [isPracticableId].
      */
     fun isUsableId(id: String): Boolean = ID.matches(id) && !id.startsWith(".")
 
-    /** The shared stem of an attempt's two files: `20260913T180402Z_imperialist`. */
-    fun stem(ts: String, id: String): String = ts + "_" + id
+    /**
+     * Whether the coach's `words[].id` can be practised at all. Only a blank id
+     * cannot: everything else becomes a file name through [fileId].
+     *
+     * The ids come from the coach's ledger, which holds the words Azure flagged
+     * in his reads — so `don't` and `people's` are ordinary, and they are
+     * exactly the connected-speech failures this drill exists for. Refusing an
+     * id that is not already a safe file name would drop those words silently
+     * and for ever.
+     */
+    fun isPracticableId(id: String): Boolean = id.isNotBlank()
+
+    /**
+     * The id as it appears in a file name: every character outside
+     * `[A-Za-z0-9._-]` becomes `_`, the result is cut to [MAX_ID_LENGTH] and a
+     * leading dot is replaced so no attempt is ever written hidden. Blank
+     * becomes `word`.
+     *
+     * Only the two attempt file names are spelt this way, and they are both
+     * built from this one function, so they always agree — which is all the
+     * coach needs, because it pairs them by identical stem and reads the real
+     * id out of the sidecar's JSON. The clip name and the `results.json` key
+     * belong to the coach and are never rewritten by the app.
+     */
+    fun fileId(id: String): String {
+        val mapped = buildString(id.length) {
+            for (c in id) append(if (c.isAsciiIdChar()) c else '_')
+        }
+        val cut = mapped.take(MAX_ID_LENGTH)
+        if (cut.isEmpty()) return "word"
+        return if (cut.startsWith(".")) "_" + cut.substring(1) else cut
+    }
+
+    private fun Char.isAsciiIdChar(): Boolean =
+        this in 'A'..'Z' || this in 'a'..'z' || this in '0'..'9' || this == '.' || this == '_' || this == '-'
+
+    /**
+     * The shared stem of an attempt's two files: `20260913T180402Z_imperialist`.
+     * [id] is the coach's raw id; it is put through [fileId] here so every
+     * caller gets the same spelling.
+     */
+    fun stem(ts: String, id: String): String = ts + "_" + fileId(id)
 
     /** `sayit/attempts/<ts>_<id>.m4a`. */
     fun audioName(ts: String, id: String): String = stem(ts, id) + AUDIO_EXTENSION

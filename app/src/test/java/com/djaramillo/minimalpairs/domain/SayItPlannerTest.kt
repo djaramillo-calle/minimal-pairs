@@ -82,19 +82,34 @@ class SayItPlannerTest {
     // ---- usable ---------------------------------------------------------
 
     @Test
-    fun unusableEntriesAreDropped() {
+    fun onlyEntriesWithNothingToPractiseAreDropped() {
         val list = words(
             word("imperialist"),
-            word(".."),
-            word("a/b"),
             word(""),
-            word(".hidden"),
-            word("a".repeat(65)),
+            word("   "),
             word("blankword", word = "   "),
             word("blanksentence", sentence = ""),
             word("ok"),
         )
         assertEquals(listOf("imperialist", "ok"), ids(SayItPlanner.usable(list)))
+    }
+
+    /**
+     * The coach's ids are the words Azure flagged in his reads, so `don't` and
+     * `people's` are ordinary — and contractions are exactly the connected-speech
+     * failures the drill exists for. Dropping them for the shape of the id would
+     * lose the words that matter most, silently.
+     */
+    @Test
+    fun anIdThatIsNotAlreadyAFileNameIsStillPractised() {
+        val list = words(
+            word("don't"), word("people's"), word("café"), word("a/b"),
+            word(".hidden"), word("a".repeat(65)),
+        )
+        assertEquals(
+            listOf("don't", "people's", "café", "a/b", ".hidden", "a".repeat(65)),
+            ids(SayItPlanner.usable(list)),
+        )
     }
 
     @Test

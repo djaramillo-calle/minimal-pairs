@@ -57,7 +57,10 @@ object SayItCleanup {
                 val file = attempt.file?.trim().orEmpty()
                 if (file.isNotEmpty()) files.add(file)
             }
-            if (files.isNotEmpty()) out[id] = files
+            // Keyed by the file-name spelling of the id, because that is what
+            // an attempt's name carries; `results.json` keys are the coach's
+            // raw ids (docs/CONTRACT.md, "Say it").
+            if (files.isNotEmpty()) out[SayItNames.fileId(id)] = files
         }
         return out
     }

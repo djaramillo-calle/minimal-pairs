@@ -43,10 +43,15 @@ SESSION_FILE_RE = re.compile(r"^\d{8}T\d{6}Z\.json$")
 CATALOG_VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 ATTEMPT_RE = re.compile(r"^(\d{8}T\d{6}Z)_([A-Za-z0-9._-]{1,64})$")
 SAYIT_STATUS = ("active", "retired", "tutor")
-SAYIT_CLIP_RE = re.compile(r"^clips/[A-Za-z0-9._-]{1,64}\.ogg$")
+# A clip keeps the coach's own spelling of the word, so an apostrophe or an
+# accent is ordinary; what makes an entry dangerous is a separator, a colon, a
+# control character or a hidden name (docs/CONTRACT.md, "Say it").
+SAYIT_CLIP_RE = re.compile(r"^clips/(?!\.)[^/\\:\x00-\x1f]{1,200}\.ogg$")
 # docs/CONTRACT.md, "Say it": an id is used verbatim as a file name, never
 # sanitised, so the rule is a check and not a rewrite.
 SAYIT_ID_RE = re.compile(r"^(?!\.)[A-Za-z0-9._-]{1,64}$")
+# Anything outside this becomes "_" in an attempt's file name (see safe_id).
+SAFE_ID_RE = re.compile(r"[^A-Za-z0-9._-]")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STATE_LEVEL_KEYS = ("level", "level_changed")
 PCT_TOL = 0.0015   # percentages are written with 3 decimals
@@ -522,6 +527,20 @@ def usable_id(wid):
     return isinstance(wid, str) and SAYIT_ID_RE.match(wid) is not None
 
 
+def safe_id(wid):
+    """The file-name spelling of a word id (docs/CONTRACT.md, "Say it").
+
+    The coach's ids are ledger words, so an apostrophe or an accent is ordinary.
+    Only the two attempt file names are spelt safely; the sidecar's `id` and the
+    `results.json` key keep the coach's own text.
+    """
+    out = SAFE_ID_RE.sub("_", wid)[:64]
+    if not out:
+        return "word"
+    # A leading dot would hide the attempt from an ordinary listing.
+    return "_" + out[1:] if out.startswith(".") else out
+
+
 def check_sayit_words(obj, report, where="sayit.zip words.json"):
     c = Checker(report, where)
     if not isinstance(obj, dict):
@@ -540,14 +559,14 @@ def check_sayit_words(obj, report, where="sayit.zip words.json"):
             continue
         wid = w.get("id")
         wc = Checker(report, "%s words['%s']" % (where, wid))
-        wc.key(w, "id", usable_id,
-               "an id of 1-64 characters from [A-Za-z0-9._-], not starting with a dot")
+        wc.key(w, "id", lambda v: isinstance(v, str) and v.strip() != "",
+               "the coach's own word id, non-blank")
         wc.key(w, "word", lambda v: isinstance(v, str) and v.strip() != "", "a non-empty string")
         wc.key(w, "sentence", lambda v: isinstance(v, str) and v.strip() != "", "a non-empty string")
         clip = wc.key(w, "clip", lambda v: isinstance(v, str), "a string")
         if isinstance(clip, str) and clip and not SAYIT_CLIP_RE.match(clip):
             wc.bad("clip must be empty or look like clips/<id>.ogg, got %s" % json.dumps(clip)[:60])
-        elif isinstance(clip, str) and clip and usable_id(wid) and clip != "clips/%s.ogg" % wid:
+        elif isinstance(clip, str) and clip and isinstance(wid, str) and clip != "clips/%s.ogg" % wid:
             # The app names the clip from the id, so a clip under any other
             # name is one it will never find.
             wc.bad("clip must be clips/%s.ogg, got %s" % (wid, json.dumps(clip)[:60]))
@@ -578,8 +597,8 @@ def check_sayit_results(obj, report, where="sayit.zip results.json"):
         return
     for wid, rec in words.items():
         rc = Checker(report, "%s words['%s']" % (where, wid))
-        if not usable_id(wid):
-            rc.bad("id must be 1-64 characters from [A-Za-z0-9._-], not starting with a dot")
+        if not (isinstance(wid, str) and wid.strip()):
+            rc.bad("id must be the coach's own word id, non-blank")
         if not isinstance(rec, dict):
             rc.bad("must be an object")
             continue
@@ -616,16 +635,17 @@ def check_attempt_sidecar(obj, fname, report):
         c.bad("top level must be an object")
         return
     c.version(obj)
-    wid = c.key(obj, "id", usable_id,
-                "an id of 1-64 characters from [A-Za-z0-9._-], not starting with a dot")
+    wid = c.key(obj, "id", lambda v: isinstance(v, str) and v.strip() != "",
+                "the coach's own id, copied verbatim")
     c.key(obj, "word", lambda v: isinstance(v, str) and v.strip() != "", "a non-empty string")
     c.key(obj, "sentence", lambda v: isinstance(v, str) and v.strip() != "", "a non-empty string")
     started = c.ts(obj, "started")
     c.key(obj, "duration_s", lambda v: is_num(v) and 0 <= v <= 20, "a number 0-20 (the 20 s cap)")
     c.key(obj, "app_version", lambda v: isinstance(v, str) and v != "", "a non-empty string")
     c.key(obj, "clip_played", lambda v: is_int(v) and v >= 0, "a non-negative integer")
-    if m and isinstance(wid, str) and m.group(2) != wid:
-        c.bad("file name says id '%s' but the sidecar says '%s'" % (m.group(2), wid))
+    if m and isinstance(wid, str) and m.group(2) != safe_id(wid):
+        c.bad("file name says id '%s' but the sidecar's id spells safely as '%s'"
+              % (m.group(2), safe_id(wid)))
     if m and isinstance(obj.get("started"), str) and started:
         want = basic_form(obj["started"])
         if want and want != m.group(1):
@@ -1068,13 +1088,34 @@ def selftest():
         badst = _results(); badst["words"]["imperialist"]["status"] = "paused"
         _say_expect("say-status", _words(), badst,
                     [("20260913T180402Z_imperialist.json", _sidecar())], "'status' must be")
-        # an id the app could not turn into a file name: refused, never rewritten
-        for bad_id in ("over all", ".hidden", "a/b", "x" * 65, ""):
-            spaced = _words(); spaced["words"][0]["id"] = bad_id
-            spaced["words"][0]["clip"] = ""
-            _say_expect("say-id-%d" % (abs(hash(bad_id)) % 1000), spaced, _results(),
-                        [("20260913T180402Z_imperialist.json", _sidecar())],
-                        "'id' must be an id of 1-64 characters", clips=())
+        # Only a blank id is refused. The coach's ids are ledger words, so an
+        # apostrophe or an accent is ordinary; the file name spells them safely.
+        assert safe_id("don't") == "don_t" and safe_id("people's") == "people_s"
+        assert safe_id("caf\u00e9") == "caf_" and safe_id("over all") == "over_all"
+        assert safe_id(".hidden") == "_hidden" and safe_id("a/b") == "a_b"
+        assert safe_id("x" * 65) == "x" * 64 and safe_id("") == "word"
+        assert safe_id("!!!") == "___"
+        blank = _words(); blank["words"][0]["id"] = "   "; blank["words"][0]["clip"] = ""
+        _say_expect("say-id-blank", blank, _results(),
+                    [("20260913T180402Z_imperialist.json", _sidecar())],
+                    "'id' must be the coach's own word id", clips=())
+        # a word whose id is not a file name is practised, and its attempt is
+        # named through safe_id while every JSON keeps the coach's own spelling
+        apos = _words()
+        apos["words"][0].update(id="don't", word="don't", clip="clips/don't.ogg")
+        apos_res = {"version": 1, "updated": "2026-09-13T19:12:00Z", "words": {"don't": {
+            "attempts": [{"at": "2026-09-13T18:04:02Z", "file": "20260913T180402Z_don_t.json",
+                          "accuracy": 71.0, "fluency": 64.0, "pron": 68.0, "flagged": ["don't"]}],
+            "best": 71.0, "last": 71.0, "status": "active"}}}
+        apos_side = dict(_sidecar(), id="don't", word="don't")
+        rep = validate_folder(_say_folder(os.path.join(tmp, "say-apostrophe"), apos, apos_res,
+                                          [("20260913T180402Z_don_t.json", apos_side)],
+                                          clips=("clips/don't.ogg",)))
+        assert rep.violations == [], rep.violations
+        # ...and the file name must still be the safe spelling of that id
+        _say_expect("say-apostrophe-raw", apos, apos_res,
+                    [("20260913T180402Z_don't.json", apos_side)],
+                    "file name must look like", clips=("clips/don't.ogg",))
         # the clip is named from the id, so any other name is one the app never looks for
         misnamed = _words(); misnamed["words"][0]["clip"] = "clips/other.ogg"
         _say_expect("say-clip-name", misnamed, _results(),
@@ -1083,7 +1124,7 @@ def selftest():
         # the file name and the sidecar must agree, both on the id and on the timestamp
         _say_expect("say-id", _words(), _results(),
                     [("20260913T180402Z_other.json", _sidecar())],
-                    "file name says id 'other' but the sidecar says 'imperialist'")
+                    "file name says id 'other' but the sidecar's id spells safely as 'imperialist'")
         _say_expect("say-ts", _words(), _results(),
                     [("attempt-1.json", _sidecar())], "file name must look like")
         drift = _sidecar(); drift["started"] = "2026-09-13T18:04:03Z"

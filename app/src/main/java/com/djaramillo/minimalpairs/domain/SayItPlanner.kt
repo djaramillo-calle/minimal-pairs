@@ -76,7 +76,7 @@ object SayItPlanner {
      * The entries the app can actually practise, in file order.
      *
      * Dropped: an id that could not become a file name
-     * ([SayItNames.isUsableId]), a blank `word` (nothing to highlight) and a
+     * ([SayItNames.isPracticableId]), a blank `word` (nothing to highlight) and a
      * blank `sentence` (nothing to speak or score). A repeated id is kept only
      * the first time, because the id is the key everything else joins on.
      *
@@ -88,7 +88,7 @@ object SayItPlanner {
         val out = ArrayList<SayItWord>()
         val seen = HashSet<String>()
         for (w in words?.words.orEmpty()) {
-            if (!SayItNames.isUsableId(w.id)) continue
+            if (!SayItNames.isPracticableId(w.id)) continue
             if (w.word.isBlank() || w.sentence.isBlank()) continue
             if (!seen.add(w.id)) continue
             out.add(w)

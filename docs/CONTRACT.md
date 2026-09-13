@@ -296,13 +296,27 @@ fill the phone. Nothing is written outside the app's own private directory.
 | `flagged_on` / `read_on` / `miss_rate` | the coach's evidence; `miss_rate` orders the session |
 | `added` | UTC date the word entered the set |
 
-**`id` is `[A-Za-z0-9._-]`, 1 to 64 characters, and may not start with a dot.**
-It is used **verbatim**, never sanitised: it is the clip name (`clips/<id>.ogg`),
-the `<id>` half of both attempt file names and the key in `results.json`, so
-rewriting a character in any one of those four places would stop the others
-matching. The coach must therefore emit an id that already obeys the rule; an
-entry whose id does not is dropped by the app, with no clip and no attempt ever
-written for it.
+**The id is the coach's, and the app never rewrites it — except in a file
+name.** It is the key in `results.json` and the `id` the sidecar carries, both
+verbatim. The ids come straight from the coach's ledger, which holds the words
+Azure flagged in his reads, so `don't` and `people's` are ordinary — and they are
+precisely the connected-speech failures this drill exists for. Refusing them
+would drop the words that matter most, silently and for ever.
+
+For the two attempt **file names** the app spells the id safely: every character
+outside `[A-Za-z0-9._-]` becomes `_`, the result is cut to 64 characters, a
+leading dot is replaced, and a blank becomes `word` (this is
+`scripts/validate-contract.py`'s `safe_id`). `don't` is written as
+`20260913T180402Z_don_t.m4a` and `…_don_t.json`. That is safe because the two
+names are built from the same function, so they always agree, and the coach
+pairs them by identical stem and reads the real id out of the sidecar's JSON —
+it never parses the id back out of a file name. Two ids that collapse onto one
+spelling simply take different seconds, like any other collision.
+
+The clip inside the zip keeps the coach's own spelling (`clips/don't.ogg`) and
+is unpacked as it stands: the entry rules refuse a separator, a `..`, a colon, a
+control character and a hidden name, which is what makes an entry dangerous —
+not an apostrophe. A word is never dropped for the shape of its id.
 
 `results.json` — what the cloud scored, written back inside the same zip:
 
@@ -342,8 +356,8 @@ happens to be written in means nothing.
 
 One recording of the whole sentence and one sidecar per attempt. `<ts>` is the
 basic UTC form `20260913T180402Z` (no colons: Android external storage and Drive
-reject them) and `<id>` is the word id, exactly as `words.json` spells it
-(`[A-Za-z0-9._-]`, 1 to 64 characters, no leading dot, never sanitised).
+reject them) and `<id>` is the word id in its safe file-name spelling (above):
+`don't` becomes `don_t`. The sidecar's own `id` field keeps the coach's text.
 **The two file names must agree exactly**: the coach matches audio to sidecar
 by identical stem, and a sidecar with no audio beside it is skipped. The audio
 is written first, so a half-synced attempt is never scored against a missing

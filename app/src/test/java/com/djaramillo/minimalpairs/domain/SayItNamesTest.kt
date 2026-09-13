@@ -180,4 +180,57 @@ class SayItNamesTest {
         val free = SayItNames.freeStart(started, "imperialist") { true }
         assertTrue("the guard must stop the loop", free.isAfter(started))
     }
+
+    // ---- fileId: the coach's id, spelt so it can be a file name ----------
+
+    @Test
+    fun fileIdSpellsAnIdSafelyWithoutLosingTheWord() {
+        assertEquals("don_t", SayItNames.fileId("don't"))
+        assertEquals("people_s", SayItNames.fileId("people's"))
+        assertEquals("caf_", SayItNames.fileId("café"))
+        assertEquals("over_all", SayItNames.fileId("over all"))
+        assertEquals("a_b", SayItNames.fileId("a/b"))
+        assertEquals("a_b", SayItNames.fileId("a\\b"))
+        assertEquals("a_b", SayItNames.fileId("a:b"))
+        assertEquals("___", SayItNames.fileId("!!!"))
+        // never hidden, never empty, never longer than a file name can hold
+        assertEquals("_hidden", SayItNames.fileId(".hidden"))
+        assertEquals("_.", SayItNames.fileId(".."))
+        assertEquals("word", SayItNames.fileId(""))
+        assertEquals("x".repeat(64), SayItNames.fileId("x".repeat(65)))
+        // an id that is already a file name is left exactly as it is
+        assertEquals("imperialist", SayItNames.fileId("imperialist"))
+        assertEquals("a.b-c_d", SayItNames.fileId("a.b-c_d"))
+    }
+
+    @Test
+    fun fileIdAlwaysProducesAUsableFileNameToken() {
+        for (id in listOf("don't", "café", "a/b", "..", "", "!!!", "x".repeat(200), " ")) {
+            assertTrue(id, SayItNames.isUsableId(SayItNames.fileId(id)))
+        }
+    }
+
+    @Test
+    fun bothAttemptNamesShareTheSanitisedStem() {
+        val ts = "20260913T180402Z"
+        assertEquals("20260913T180402Z_don_t.m4a", SayItNames.audioName(ts, "don't"))
+        assertEquals("20260913T180402Z_don_t.json", SayItNames.sidecarName(ts, "don't"))
+        // the coach pairs the two by identical stem, so they must never diverge
+        assertEquals(
+            SayItNames.audioName(ts, "don't").removeSuffix(".m4a"),
+            SayItNames.sidecarName(ts, "don't").removeSuffix(".json"),
+        )
+        // and the name round-trips back out of the file name
+        assertEquals("don_t", SayItNames.idOf(SayItNames.audioName(ts, "don't")))
+        assertEquals(ts, SayItNames.timestampOf(SayItNames.sidecarName(ts, "don't")))
+    }
+
+    @Test
+    fun onlyABlankIdIsUnpracticable() {
+        assertTrue(SayItNames.isPracticableId("don't"))
+        assertTrue(SayItNames.isPracticableId(".."))
+        assertTrue(SayItNames.isPracticableId("a".repeat(200)))
+        assertFalse(SayItNames.isPracticableId(""))
+        assertFalse(SayItNames.isPracticableId("   "))
+    }
 }

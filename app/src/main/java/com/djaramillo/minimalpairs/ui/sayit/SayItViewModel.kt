@@ -454,7 +454,10 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             word = word.word,
             sentence = word.sentence,
             started = TimeUtil.formatIso(at),
-            durationS = (take.durationMs / 100.0).roundToLong() / 10.0,
+            // Clamped: the take is measured as wall time, so the stop latency after
+            // MAX_MS can push it a tenth over the cap docs/CONTRACT.md states and
+            // scripts/validate-contract.py enforces.
+            durationS = (take.durationMs.coerceAtMost(AttemptRecorder.MAX_MS) / 100.0).roundToLong() / 10.0,
             appVersion = container.appVersion,
             clipPlayed = clipPlays,
         )

@@ -242,4 +242,33 @@ class SayItCleanupTest {
     fun theOrphanWaitIsOneDay() {
         assertEquals(24L, SayItCleanup.ORPHAN_HOURS)
     }
+
+    /**
+     * The retention join crosses a spelling boundary: an attempt's file name
+     * carries the safe spelling of the id, `results.json` carries the coach's
+     * own. If the two ever stop meeting, a scored attempt is kept for ever or —
+     * worse — an unscored one is deleted.
+     */
+    @Test
+    fun theRetentionJoinSurvivesAnIdThatIsNotAFileName() {
+        val names = listOf(audio("don't"))
+        val results = scored("don't" to listOf(sidecar("don't")))
+        assertEquals(names, SayItCleanup.deletable(names, results, at(31)))
+    }
+
+    @Test
+    fun anUnscoredAttemptWithASanitisedIdIsNeverDeleted() {
+        val names = listOf(audio("don't"))
+        val results = scored("people's" to listOf(sidecar("people's")))
+        assertEquals(emptyList<String>(), SayItCleanup.deletable(names, results, at(31)))
+    }
+
+    @Test
+    fun twoIdsThatSpellTheSameAreStillJoinedByTheirOwnAttempts() {
+        // "don't" and "don-t" both spell as don_t; the sidecar name is what joins,
+        // and both of these are the same stem, so scoring either scores the file.
+        assertEquals(SayItNames.fileId("don't"), SayItNames.fileId("don\u2019t"))
+        val names = listOf(audio("don't"))
+        assertEquals(names, SayItCleanup.deletable(names, scored("don\u2019t" to listOf(sidecar("don't"))), at(31)))
+    }
 }

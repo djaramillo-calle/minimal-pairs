@@ -216,7 +216,7 @@
     <string name="sayit_sentence_trouble_not_saved">The recording could not be written into your folder, so nothing was kept.</string>
     <string name="sayit_sentence_trouble_playback">That could not be played.</string>
     <string name="sayit_sentence_empty_title">No sentences yet</string>
-    <string name="sayit_sentence_empty_text">Say it practises the words your coach flagged in your daily read-aloud recording. The list arrives in sayit/words.json with the next sync, and the words already mastered drop out of it.</string>
+    <string name="sayit_sentence_empty_text">Say it practises the words your coach flagged in your daily read-aloud recording. The list arrives inside sayit.zip with the next sync, and the words already mastered drop out of it.</string>
     <string name="sayit_sentence_empty_problem">The list could not be read: %1$s</string>
     <string name="sayit_sentence_folder_title">The folder is not available</string>
     <string name="sayit_sentence_folder_not_chosen">Say it reads its sentences from your synced folder and writes your recordings back into it, and no folder has been chosen yet.</string>

@@ -560,7 +560,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun writeSayItAttempt(audio: File, sidecar: AttemptSidecar): String? = withContext(Dispatchers.IO) {
         val id = sidecar.id
-        if (!SayItNames.isUsableId(id)) return@withContext null
+        if (!SayItNames.isPracticableId(id)) return@withContext null
         val instant = TimeUtil.parseIso(sidecar.started) ?: return@withContext null
         val ts = TimeUtil.sessionIdFrom(instant)
         val audioName = SayItNames.audioName(ts, id)
