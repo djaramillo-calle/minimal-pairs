@@ -3,9 +3,6 @@ package com.djaramillo.minimalpairs.ui
 import com.djaramillo.minimalpairs.domain.model.ContrastState
 import com.djaramillo.minimalpairs.domain.model.DayTally
 import com.djaramillo.minimalpairs.domain.model.LearnerState
-import com.djaramillo.minimalpairs.domain.model.Pair
-import com.djaramillo.minimalpairs.domain.model.PairWord
-import com.djaramillo.minimalpairs.domain.model.WordResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -59,53 +56,6 @@ class CommonTest {
         )
         assertEquals(listOf(LevelChange("th", 1, 2), LevelChange("i/ii", 1, 2)), levelChanges(before, after))
         assertEquals(emptyList<LevelChange>(), levelChanges(after, after))
-    }
-
-    private val pair = Pair(
-        id = "th:think-sink",
-        a = PairWord("think", "θˈɪŋk", 1000, "high"),
-        b = PairWord("sink", "sˈɪŋk", 1200, "high"),
-        diff = listOf("θ", "s"), variant = "θ/s", position = "initial",
-    )
-    private val hPair = Pair(
-        id = "h:our-hour",
-        a = PairWord("our", "ˈaʊə", 500, "high"),
-        b = PairWord("hour", "ˈaʊə", 900, "high"),
-        diff = listOf("", "h"), variant = "/h", position = "initial",
-    )
-
-    private fun result(heard: String, acc: Int) =
-        WordResult(heard = heard, acc = acc, accOther = 50, ph = null, phOther = null, votes = "phoneme:none word:none recognition:none", recognised = null, ms = 900)
-
-    @Test
-    fun hint_follows_heard_and_the_threshold() {
-        assertEquals(SayHint.Good, sayHint(pair, "think", result("think", 81), 60))
-        assertEquals(SayHint.BelowThreshold(55, 60), sayHint(pair, "think", result("think", 55), 60))
-        assertEquals(SayHint.HeardOther("θ", "s"), sayHint(pair, "think", result("sink", 90), 60))
-        assertEquals(SayHint.HeardOther("s", "θ"), sayHint(pair, "sink", result("think", 90), 60))
-        assertEquals(SayHint.Unclear, sayHint(pair, "think", result("?", 90), 60))
-        assertEquals(SayHint.NoSpeech, sayHint(pair, "think", result("?", 0), 60, noSpeech = true))
-        assertNull(sayHint(pair, "thing", result("thing", 90), 60))
-    }
-
-    @Test
-    fun hint_carries_empty_phonemes_for_absent_sounds() {
-        assertEquals(SayHint.HeardOther("", "h"), sayHint(hPair, "our", result("hour", 90), 60))
-        assertEquals(SayHint.HeardOther("h", ""), sayHint(hPair, "hour", result("our", 90), 60))
-    }
-
-    @Test
-    fun mic_prompt_is_shown_once_per_request_and_survives_a_restored_activity() {
-        assertFalse(shouldPromptMic(request = 0, launched = 0))
-        assertTrue(shouldPromptMic(request = 1, launched = 0))
-        // Already prompted for this request (a rotation while the system dialog is up).
-        assertFalse(shouldPromptMic(request = 1, launched = 1))
-        assertTrue(shouldPromptMic(request = 2, launched = 1))
-        // After process death the activity's saved id is ahead of the new ViewModel's counter:
-        // the block must still get its prompt.
-        assertTrue(shouldPromptMic(request = 1, launched = 3))
-        // Nothing pending: the caller clears the saved id instead of prompting.
-        assertFalse(shouldPromptMic(request = 0, launched = 3))
     }
 
     @Test

@@ -72,24 +72,18 @@ Poco F7 Pro on Android 15, sideloads APKs.
   ducking so music in another app is lowered, not talked over. A clip that
   cannot be decoded never strands the session: the trial offers Retry / Skip
   (a replacement draw with the same index; nothing is recorded for it).
-- Say it (production block): after the perception trials, `plan.production_pairs`
-  pairs (default 8). Screen: the pair with IPA, "hear" buttons for the model
-  voice of each word, one big record button per word (tap to start; stops on
-  tap, after 600 ms of silence following speech, or at 3 s), playback of the
-  learner's own recording, per-word result (heard as / accuracy) and the
-  pair's points, Next. Recording: `AudioRecord`, 16 kHz mono PCM16 in memory,
-  WAV-wrapped for the request; `RECORD_AUDIO` is the one extra permission,
-  requested when the block first starts (denied → the block is skipped and
-  the session still counts). Assessment: Azure Speech pronunciation
-  assessment over REST with the learner's key from Settings
-  (`https://<region>.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-GB&format=detailed`,
-  header `Pronunciation-Assessment` = base64 JSON
-  `{"ReferenceText": <word>, "GradingSystem": "HundredMark", "Granularity": "Phoneme", "Dimension": "Comprehensive", "EnableMiscue": false}`,
-  `Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000`; en-US with
-  `"PhonemeAlphabet": "IPA"` for the two assessment calls, plus one en-GB
-  recognition call without the header), scored by the contract's rule.
-  Pair selection and the level ladder: `docs/ADAPTATION.md`. Without a key,
-  microphone or network the block is skipped with a one-line notice.
+- Say it: a separate mode driven by the coach's `sayit.zip`
+  (`docs/CONTRACT.md`, "Say it"). Per word: the sentence in large type with the
+  flagged word highlighted, IPA under it when present, a replayable "Play the
+  model" button (a pre-rendered en-GB clip from the zip), one big record
+  control (tap to start, tap to stop, capped at 20 s), then the attempt and the
+  model played back-to-back so the learner can compare, then Next. Recording:
+  `MediaRecorder` to AAC in an MP4 container (`.m4a`) in the app's cache, copied
+  into the synced folder once complete, with a sidecar naming the sentence
+  verbatim. `RECORD_AUDIO` is the one extra permission, asked with a rationale;
+  refused, the mode still plays the model and shows the sentences. **The app
+  never scores an attempt and makes no network call for Say it** — the cloud
+  scores it and writes the result back into the zip.
 - Session logic: `plan.trials_per_session` trials (default 40, ≈3 minutes),
   contrasts weighted per `docs/ADAPTATION.md`, random voice per trial, half the
   trials on untrained words. Domain logic (scheduler, state update, record

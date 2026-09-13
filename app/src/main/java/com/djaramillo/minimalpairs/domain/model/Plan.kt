@@ -20,8 +20,6 @@ data class Plan(
     val band: List<String>? = null,
     val feedback: String? = null,
     val weights: Map<String, Double>? = null,
-    @SerialName("production_pairs") val productionPairs: Int? = null,
-    @SerialName("production_threshold") val productionThreshold: Int? = null,
     @SerialName("max_level") val maxLevel: Int? = null,
     /** Pinned levels, contrast id → 1–4; the app never moves a pinned contrast. */
     val levels: Map<String, Int>? = null,
@@ -40,12 +38,6 @@ object PlanDefaults {
     val FEEDBACK: Feedback = Feedback.FULL
     const val WRITTEN_BY = "coach"
     const val NOTE = ""
-    const val PRODUCTION_PAIRS = 8
-    const val MIN_PRODUCTION_PAIRS = 0
-    const val MAX_PRODUCTION_PAIRS = 30
-    const val PRODUCTION_THRESHOLD = 60
-    const val MIN_PRODUCTION_THRESHOLD = 0
-    const val MAX_PRODUCTION_THRESHOLD = 100
     const val MIN_LEVEL = 1
     const val MAX_LEVEL = 4
     const val WEEKLY_MINUTES_TARGET = 20
@@ -100,10 +92,6 @@ data class EffectivePlan(
     val feedback: Feedback,
     /** Resolved weight 0–1 for every contrast of the catalog (unknown plan ids dropped). */
     val weights: Map<String, Double>,
-    /** Pairs in the Say-it block; `0` switches production off. */
-    val productionPairs: Int = PlanDefaults.PRODUCTION_PAIRS,
-    /** Azure word accuracy (0–100) a word needs to earn its point. */
-    val productionThreshold: Int = PlanDefaults.PRODUCTION_THRESHOLD,
     /** Ceiling of the level ladder, 1–4. */
     val maxLevel: Int = PlanDefaults.MAX_LEVEL,
     /** Pinned levels (catalog contrast ids only, values 1–4); a pinned contrast never moves. */
@@ -113,9 +101,6 @@ data class EffectivePlan(
 ) {
     /** Contrast ids the plan asks for (weight > 0), in catalog order. */
     val activeContrastIds: List<String> get() = weights.filter { it.value > 0.0 }.keys.toList()
-
-    /** Whether the Say-it block runs at all (`production_pairs > 0`). */
-    val productionOn: Boolean get() = productionPairs > 0
 }
 
 /**
@@ -130,8 +115,8 @@ data class EffectivePlan(
  * - No usable contrast (all weights 0) → catalog defaults and `planSource = "default"`.
  * - Enabled [override] replaces the weights (and trials count when given) and
  *   yields `planSource = "override"`; the rest still comes from the plan.
- * - Say-it levers, level ceiling, pins and the weekly target are clamped to
- *   their contract ranges; pins for unknown contrast ids are dropped.
+ * - The level ceiling, pins and the weekly target are clamped to their
+ *   contract ranges; pins for unknown contrast ids are dropped.
  */
 fun effectivePlan(
     plan: Plan?,
@@ -181,10 +166,6 @@ fun effectivePlan(
         weights = defaultWeights
     }
 
-    val productionPairs = (plan?.productionPairs ?: PlanDefaults.PRODUCTION_PAIRS)
-        .coerceIn(PlanDefaults.MIN_PRODUCTION_PAIRS, PlanDefaults.MAX_PRODUCTION_PAIRS)
-    val productionThreshold = (plan?.productionThreshold ?: PlanDefaults.PRODUCTION_THRESHOLD)
-        .coerceIn(PlanDefaults.MIN_PRODUCTION_THRESHOLD, PlanDefaults.MAX_PRODUCTION_THRESHOLD)
     val maxLevel = (plan?.maxLevel ?: PlanDefaults.MAX_LEVEL)
         .coerceIn(PlanDefaults.MIN_LEVEL, PlanDefaults.MAX_LEVEL)
     val levels = LinkedHashMap<String, Int>()
@@ -206,8 +187,6 @@ fun effectivePlan(
         bands = bands,
         feedback = feedback,
         weights = weights,
-        productionPairs = productionPairs,
-        productionThreshold = productionThreshold,
         maxLevel = maxLevel,
         levels = levels,
         weeklyMinutesTarget = weeklyMinutesTarget,

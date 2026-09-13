@@ -19,8 +19,6 @@ data class LearnerState(
     @SerialName("plan_source") val planSource: String? = null,
     val contrasts: Map<String, ContrastState> = emptyMap(),
     val words: Map<String, WordState> = emptyMap(),
-    /** Say-it history per catalog pair id. */
-    val pairs: Map<String, PairState> = emptyMap(),
     /** Consistency tally (docs/ADAPTATION.md "Consistency"). */
     val practice: Practice = Practice(),
 ) {
@@ -48,26 +46,6 @@ data class ContrastState(
     val level: Int = 1,
     /** When [level] last moved; `null` while it never has. */
     @SerialName("level_changed") val levelChanged: String? = null,
-    /** Lifetime Say-it pairs on this contrast. */
-    @SerialName("production_pairs") val productionPairs: Int = 0,
-    /** Lifetime Say-it points (2 per pair max). */
-    @SerialName("production_points") val productionPoints: Int = 0,
-    /** points ÷ max points of the most recent session with Say-it pairs on this contrast. */
-    @SerialName("last_production_pct") val lastProductionPct: Double? = null,
-    /** The last up-to-5 sessions' production percent, oldest first. */
-    @SerialName("recent_production_pct") val recentProductionPct: List<Double> = emptyList(),
-)
-
-/** `state.json.pairs.<pair id>`: Say-it history of one pair. */
-@Serializable
-data class PairState(
-    val attempts: Int = 0,
-    /** Points (0–2) of the most recent attempt. */
-    @SerialName("last_points") val lastPoints: Int = 0,
-    val best: Int = 0,
-    /** Sessions in which the pair scored < 2 points. */
-    val fails: Int = 0,
-    val last: String? = null,
 )
 
 /** `state.json.practice`: consistency, tracked by the app and judged by the coach. */
@@ -84,7 +62,6 @@ data class DayTally(
     val sessions: Int = 0,
     val seconds: Int = 0,
     @SerialName("perception_trials") val perceptionTrials: Int = 0,
-    @SerialName("production_pairs") val productionPairs: Int = 0,
 )
 
 @Serializable

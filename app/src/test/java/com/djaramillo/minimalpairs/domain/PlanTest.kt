@@ -22,12 +22,9 @@ class PlanTest {
         assertEquals(pack, p.voices)
         assertEquals(listOf("high", "mid", "low"), p.bands) // the ceiling; the level ladder picks within it
         assertEquals(Feedback.FULL, p.feedback)
-        assertEquals(8, p.productionPairs)
-        assertEquals(60, p.productionThreshold)
         assertEquals(4, p.maxLevel)
         assertEquals(emptyMap<String, Int>(), p.levels)
         assertEquals(20, p.weeklyMinutesTarget)
-        assertEquals(true, p.productionOn)
         assertEquals("", p.note)
         assertNull(p.planWritten)
         assertEquals(1.0, p.weights.getValue("th"), 1e-9)
@@ -129,28 +126,22 @@ class PlanTest {
     }
 
     @Test
-    fun sayItLeversLevelsAndTargetAreClampedAndValidated() {
+    fun levelLeversAndTargetAreClampedAndValidated() {
         val plan = Plan(
-            productionPairs = 99, productionThreshold = -5, maxLevel = 9,
+            maxLevel = 9,
             levels = mapOf("th" to 7, "s/z" to 0, "i/ii" to 3, "nope" to 2),
             weeklyMinutesTarget = 1000,
         )
         val p = effectivePlan(plan, catalog, pack)
-        assertEquals(30, p.productionPairs)
-        assertEquals(0, p.productionThreshold)
         assertEquals(4, p.maxLevel)
         assertEquals(mapOf("th" to 4, "s/z" to 1, "i/ii" to 3), p.levels) // unknown id dropped, values clamped
         assertEquals(300, p.weeklyMinutesTarget)
 
-        val off = effectivePlan(Plan(productionPairs = 0, maxLevel = 0, weeklyMinutesTarget = -3), catalog, pack)
-        assertEquals(0, off.productionPairs)
-        assertEquals(false, off.productionOn)
+        val off = effectivePlan(Plan(maxLevel = 0, weeklyMinutesTarget = -3), catalog, pack)
         assertEquals(1, off.maxLevel)
         assertEquals(0, off.weeklyMinutesTarget)
 
-        val mid = effectivePlan(Plan(productionPairs = 12, productionThreshold = 75, maxLevel = 2, weeklyMinutesTarget = 45), catalog, pack)
-        assertEquals(12, mid.productionPairs)
-        assertEquals(75, mid.productionThreshold)
+        val mid = effectivePlan(Plan(maxLevel = 2, weeklyMinutesTarget = 45), catalog, pack)
         assertEquals(2, mid.maxLevel)
         assertEquals(45, mid.weeklyMinutesTarget)
     }

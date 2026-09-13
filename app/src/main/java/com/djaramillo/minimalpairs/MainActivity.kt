@@ -1,21 +1,14 @@
 package com.djaramillo.minimalpairs
 
-import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -25,16 +18,14 @@ import com.djaramillo.minimalpairs.audio.Player
 import com.djaramillo.minimalpairs.ui.AppViewModel
 import com.djaramillo.minimalpairs.ui.HomeScreen
 import com.djaramillo.minimalpairs.ui.MinimalPairsTheme
-import com.djaramillo.minimalpairs.ui.SayItScreen
 import com.djaramillo.minimalpairs.ui.Screen
 import com.djaramillo.minimalpairs.ui.SettingsScreen
 import com.djaramillo.minimalpairs.ui.SummaryScreen
 import com.djaramillo.minimalpairs.ui.TrialScreen
-import com.djaramillo.minimalpairs.ui.shouldPromptMic
 
 /**
  * Single activity; the screen state machine lives in [AppViewModel.screen]
- * (Home → Trial → Say it → Summary → Home, Home ↔ Settings).
+ * (Home → Trial → Summary → Home, Home ↔ Settings).
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,36 +54,14 @@ private fun App(vm: AppViewModel = viewModel()) {
         if (render.isRunning) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
-    // Give audio focus back while the app is in the background so other apps stop ducking, and
-    // end a running Say-it recording. A configuration change (a rotation) stops the activity too
-    // but is not the app going away: it must not cut the learner's word in half and send the
-    // truncated recording to Azure, so the stop is skipped there.
+    // Give audio focus back while the app is in the background so other apps stop ducking. A
+    // configuration change (a rotation) stops the activity too but is not the app going away.
     val activity = view.context as? android.app.Activity
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (activity?.isChangingConfigurations != true) vm.onBackground()
     }
     // Coming back to the foreground: pick up a plan.json that arrived meanwhile (docs/CONTRACT.md).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
-    // RECORD_AUDIO for the Say-it block: the ViewModel asks (`micPrompt` = the pending request id,
-    // 0 for none), the activity shows the system prompt once per request and hands the answer back,
-    // which clears the request. The launched id survives rotation so a recreated activity does not
-    // prompt twice for the same request, and a request of 0 clears it again — after process death
-    // the restored id would otherwise sit above a ViewModel that counts from scratch and the next
-    // block would wait for a prompt that never comes (see [shouldPromptMic]).
-    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        vm.onMicPermission(granted)
-    }
-    val micPrompt by vm.micPrompt.collectAsStateWithLifecycle()
-    var micLaunched by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(micPrompt) {
-        if (shouldPromptMic(micPrompt, micLaunched)) {
-            micLaunched = micPrompt
-            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        } else if (micPrompt == 0) {
-            micLaunched = 0
-        }
-    }
-
     when (screen) {
         Screen.HOME -> {
             val home by vm.home.collectAsStateWithLifecycle()
@@ -115,17 +84,6 @@ private fun App(vm: AppViewModel = viewModel()) {
                 onRetry = vm::retryTrial,
                 onSkip = vm::skipTrial,
                 onAbandon = vm::abandonSession,
-            )
-        }
-        Screen.SAY_IT -> {
-            val sayIt by vm.sayIt.collectAsStateWithLifecycle()
-            SayItScreen(
-                ui = sayIt,
-                onRecord = vm::onSayRecord,
-                onHear = vm::onSayHear,
-                onPlayRecording = vm::onSayPlayRecording,
-                onNext = vm::onSayNext,
-                onSkipRest = vm::onSaySkipRest,
             )
         }
         Screen.SUMMARY -> {

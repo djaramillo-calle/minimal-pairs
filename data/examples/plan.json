@@ -1,41 +1,39 @@
 {
-  "version": 1,
-  "written": "2026-09-10T18:30:00Z",
-  "written_by": "coach",
-  "note": "Week 3: th and s/z from the Tuesday recording. Keep the pace.",
-  "trials_per_session": 40,
-  "untrained_ratio": 0.5,
-  "voices": [
-    "en-GB-SoniaNeural",
-    "en-GB-LibbyNeural",
-    "en-GB-HollieNeural",
-    "en-GB-RyanNeural",
-    "en-GB-ThomasNeural",
-    "en-GB-AlfieNeural"
-  ],
-  "band": [
-    "high",
-    "mid"
-  ],
-  "feedback": "full",
-  "production_pairs": 8,
-  "production_threshold": 60,
-  "max_level": 4,
-  "levels": {},
-  "weekly_minutes_target": 20,
-  "weights": {
-    "th": 1.0,
-    "s/z": 0.8,
-    "i/ii": 0.6,
-    "b/v": 0.5,
-    "cat/cut": 0.4,
-    "long-back": 0.3,
-    "j/y": 0.3,
-    "-ed": 0.3,
-    "h": 0.2,
-    "sh/ch": 0.2,
-    "er/or": 0.2,
-    "schwa": 0.15,
-    "s-cluster": 0.0
-  }
+ "version": 1,
+ "written": "2026-09-10T18:30:00Z",
+ "written_by": "coach",
+ "note": "Week 3: th and s/z from the Tuesday recording. Keep the pace.",
+ "trials_per_session": 40,
+ "untrained_ratio": 0.5,
+ "voices": [
+  "en-GB-SoniaNeural",
+  "en-GB-LibbyNeural",
+  "en-GB-HollieNeural",
+  "en-GB-RyanNeural",
+  "en-GB-ThomasNeural",
+  "en-GB-AlfieNeural"
+ ],
+ "band": [
+  "high",
+  "mid"
+ ],
+ "feedback": "full",
+ "max_level": 4,
+ "levels": {},
+ "weekly_minutes_target": 20,
+ "weights": {
+  "th": 1.0,
+  "s/z": 0.8,
+  "i/ii": 0.6,
+  "b/v": 0.5,
+  "cat/cut": 0.4,
+  "long-back": 0.3,
+  "j/y": 0.3,
+  "-ed": 0.3,
+  "h": 0.2,
+  "sh/ch": 0.2,
+  "er/or": 0.2,
+  "schwa": 0.15,
+  "s-cluster": 0.0
+ }
 }

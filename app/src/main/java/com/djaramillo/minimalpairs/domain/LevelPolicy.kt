@@ -22,12 +22,8 @@ object LevelPolicy {
 
     /** Untrained accuracy the last three probing sessions must all reach for a promotion. */
     const val PROMOTE_UNTRAINED = 0.90
-    /** Production percent the last two Say-it sessions must both reach for a promotion (when Say it is on). */
-    const val PROMOTE_PRODUCTION = 0.75
     /** Untrained accuracy below which two sessions in a row demote (regression guard). */
     const val DEMOTE_UNTRAINED = 0.60
-    /** Production percent below which two sessions in a row demote. */
-    const val DEMOTE_PRODUCTION = 0.40
 
     /** Trial-share modifier `m_level`: maintenance at level 4 halves the share. */
     const val MAINTENANCE_MODIFIER = 0.5
@@ -89,36 +85,23 @@ object LevelPolicy {
      *
      * - a [pinned] contrast never moves (the pin is returned as is);
      * - promotion when this session probed the contrast ([untrainedEvidence])
-     *   and the last three untrained results are all ≥ 90 %; when
-     *   [productionOn] **and** the contrast has at least two production
-     *   results, the last two must also be ≥ 75 % (a contrast with no
-     *   production history is promoted on perception alone, so a Say-it block
-     *   that never runs cannot freeze the ladder); never above [maxLevel];
+     *   and the last three untrained results are all >= 90 %; never above [maxLevel];
      * - demotion when this session probed the contrast and the last two
-     *   untrained results are both < 60 %, or when this session produced it
-     *   ([productionEvidence], with [productionOn]) and the last two
-     *   production results are both < 40 %; never below 1. With Say it off the
-     *   production lists are stale evidence and are ignored both ways;
+     *   untrained results are both < 60 %; never below 1;
      * - a rung above [maxLevel] (the coach lowered the ceiling) comes down to it.
      *
-     * Call it once per session: the lists are the evidence, so a session that
-     * added none to a list must not re-judge it — that is what the two
-     * evidence flags are for.
+     * Call it once per session: the list is the evidence, so a session that
+     * added nothing to it must not re-judge it — that is what [untrainedEvidence] is for.
      *
      * @param recentUntrainedPct `recent_untrained_pct`, oldest first (this session's value included).
-     * @param recentProductionPct `recent_production_pct`, oldest first (this session's value included).
      * @param untrainedEvidence this session appended to `recent_untrained_pct` for the contrast.
-     * @param productionEvidence this session appended to `recent_production_pct` for the contrast.
      */
     fun nextLevel(
         current: Int,
         recentUntrainedPct: List<Double>,
-        recentProductionPct: List<Double>,
-        productionOn: Boolean,
         pinned: Int?,
         maxLevel: Int,
         untrainedEvidence: Boolean = true,
-        productionEvidence: Boolean = true,
     ): Int {
         if (pinned != null) return pinned.coerceIn(MIN_LEVEL, MAX_LEVEL)
         val ceiling = maxLevel.coerceIn(MIN_LEVEL, MAX_LEVEL)
@@ -126,17 +109,12 @@ object LevelPolicy {
         if (level > ceiling) return ceiling
 
         val u = recentUntrainedPct
-        val p = recentProductionPct
-        val lastTwoUntrainedBad = untrainedEvidence && u.size >= 2 && u.takeLast(2).all { it < DEMOTE_UNTRAINED }
-        val lastTwoProductionBad = productionOn && productionEvidence &&
-            p.size >= 2 && p.takeLast(2).all { it < DEMOTE_PRODUCTION }
-        if (lastTwoUntrainedBad || lastTwoProductionBad) return (level - 1).coerceAtLeast(MIN_LEVEL)
-
-        val perceptionReady = untrainedEvidence && u.size >= 3 && u.takeLast(3).all { it >= PROMOTE_UNTRAINED }
-        // No production history: perception alone decides. Two results or more: they must hold up.
-        val productionReady = !productionOn || p.size < 2 || p.takeLast(2).all { it >= PROMOTE_PRODUCTION }
-        if (perceptionReady && productionReady && level < ceiling) return level + 1
-
+        if (untrainedEvidence && u.size >= 2 && u.takeLast(2).all { it < DEMOTE_UNTRAINED }) {
+            return (level - 1).coerceAtLeast(MIN_LEVEL)
+        }
+        if (untrainedEvidence && u.size >= 3 && u.takeLast(3).all { it >= PROMOTE_UNTRAINED } && level < ceiling) {
+            return level + 1
+        }
         return level
     }
 }

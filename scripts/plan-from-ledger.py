@@ -27,19 +27,16 @@ Options:
                        warning is printed instead (lower --untrained-ratio or widen).
   --feedback LEVEL     full | brief | minimal (default full)
   --voices a,b         plan.voices (default: every voice of the catalog)
-  --production-pairs N       plan.production_pairs (0-30, default 8; 0 = Say it off)
-  --production-threshold N   plan.production_threshold (0-100, default 60)
   --max-level N        plan.max_level (1-4, default 4)
   --pin CONTRAST=LEVEL plan.levels: pin a contrast's level (repeatable)
   --weekly-minutes N   plan.weekly_minutes_target (0-300, default 20)
   --selftest           run the built-in checks on synthetic data and exit
 
 Algorithm (docs/CONTRACT.md, "Coach side"):
-  score(c)  = ledger_count(c) + 2 * recent_misses(c) + 3 * production_misses(c)
+  score(c)  = ledger_count(c) + 2 * recent_misses(c)
   weight(c) = 0.15 + 0.85 * score(c) / max_score          rounded to 2 decimals
   recent_misses(c): incorrect untrained trials on c in sessions started within
-  the last --days days. production_misses(c): Say-it pairs on c that scored
-  below 2 in the same window (the ledger's own class of evidence: the mouth).
+  the last --days days.
   Regression: a contrast whose untrained percent in the last session that
   probed it dropped >= 15 points against the mean of the previous two probes
   gets its weight x 1.5, capped at 1.0 (all sessions in the folder count, so a
@@ -61,11 +58,8 @@ import tempfile
 FLOOR = 0.15
 SPAN = 1.0 - FLOOR
 MISS_WEIGHT = 2             # one incorrect untrained trial
-PRODUCTION_MISS_WEIGHT = 3  # one Say-it pair scored below 2
 REGRESSION_DROP = 15.0      # points of untrained percent, last probe vs mean of previous two
 REGRESSION_FACTOR = 1.5
-DEFAULT_PRODUCTION_PAIRS = 8
-DEFAULT_PRODUCTION_THRESHOLD = 60
 DEFAULT_MAX_LEVEL = 4
 DEFAULT_WEEKLY_MINUTES = 20
 # Share of the window's trials that were meant to be untrained but had no
@@ -203,15 +197,12 @@ def _is_int(x):
 def session_contrast_stats(session):
     """{contrast: stats} for one session, from its rows (not its summary):
     trials, correct, untrained_trials, untrained_correct, misses (incorrect
-    untrained trials), prod_pairs, prod_points, prod_misses (pairs scored < 2),
-    level (session.levels[c] or None). Contrasts appear when they have a trial
-    or a Say-it pair."""
+    untrained trials) and level (session.levels[c] or None)."""
     out = {}
 
     def get(c):
         return out.setdefault(c, {"trials": 0, "correct": 0, "untrained_trials": 0,
-                                  "untrained_correct": 0, "misses": 0, "prod_pairs": 0,
-                                  "prod_points": 0, "prod_misses": 0, "level": None})
+                                  "untrained_correct": 0, "misses": 0, "level": None})
 
     for t in session.get("trials") or []:
         if not isinstance(t, dict) or not isinstance(t.get("contrast"), str):
@@ -224,17 +215,6 @@ def session_contrast_stats(session):
             g["untrained_trials"] += 1
             g["untrained_correct"] += 1 if ok else 0
             g["misses"] += 0 if ok else 1
-    prod = session.get("production")
-    if isinstance(prod, list):
-        for row in prod:
-            if not isinstance(row, dict) or not isinstance(row.get("contrast"), str):
-                continue
-            g = get(row["contrast"])
-            pts = row.get("points")
-            pts = pts if _is_int(pts) and 0 <= pts <= 2 else 0
-            g["prod_pairs"] += 1
-            g["prod_points"] += pts
-            g["prod_misses"] += 1 if pts < 2 else 0
     levels = session.get("levels")
     if isinstance(levels, dict):
         for c, g in out.items():
@@ -245,12 +225,10 @@ def session_contrast_stats(session):
 
 
 def recent_misses(sessions, days, now):
-    """({contrast: incorrect untrained trials}, {contrast: Say-it pairs < 2},
-    sessions used, shortfall, trials) over the sessions started within the
-    window. shortfall is the sum of summary.untrained_shortfall, trials the
+    """({contrast: incorrect untrained trials}, sessions used, shortfall,
+    trials) over the sessions started within the window. shortfall is the sum of summary.untrained_shortfall, trials the
     number of trial rows."""
     misses = {}
-    prod_misses = {}
     cutoff = now - _dt.timedelta(days=days)
     used = 0
     shortfall = 0
@@ -268,9 +246,7 @@ def recent_misses(sessions, days, now):
             trials_total += g["trials"]
             if g["misses"]:
                 misses[c] = misses.get(c, 0) + g["misses"]
-            if g["prod_misses"]:
-                prod_misses[c] = prod_misses.get(c, 0) + g["prod_misses"]
-    return misses, prod_misses, used, shortfall, trials_total
+    return misses, used, shortfall, trials_total
 
 
 def probe_series(sessions):
@@ -313,18 +289,16 @@ def round2(x):
     return round(x + 1e-9, 2)
 
 
-def compute_weights(contrasts, counts, misses, prod_misses=None, regressed=None):
+def compute_weights(contrasts, counts, misses, regressed=None):
     """Return ({id: weight}, {id: score}, used_defaults). regressed is the set of
     contrasts under the regression rule (weight x 1.5, capped at 1.0)."""
-    prod_misses = prod_misses or {}
     regressed = regressed or ()
     scores = {}
     for cid, _dw, po in contrasts:
         if po:
             scores[cid] = 0
         else:
-            scores[cid] = (counts.get(cid, 0) + MISS_WEIGHT * misses.get(cid, 0)
-                           + PRODUCTION_MISS_WEIGHT * prod_misses.get(cid, 0))
+            scores[cid] = counts.get(cid, 0) + MISS_WEIGHT * misses.get(cid, 0)
     max_score = max(scores.values()) if scores else 0
     weights = {}
     used_defaults = max_score <= 0
@@ -364,9 +338,9 @@ def build_plan(args, now):
     contrasts, cat_voices = load_contrasts(args.catalog)
     counts = ledger_counts(load_json(args.ledger))
     sessions = load_sessions(args.sessions)
-    misses, prod_misses, n_sessions, shortfall, trials_total = recent_misses(sessions, args.days, now)
+    misses, n_sessions, shortfall, trials_total = recent_misses(sessions, args.days, now)
     regressed = regressions(sessions)
-    weights, scores, used_defaults = compute_weights(contrasts, counts, misses, prod_misses, regressed)
+    weights, scores, used_defaults = compute_weights(contrasts, counts, misses, regressed)
 
     band_given = bool(args.band and args.band.strip())
     band = [b.strip() for b in (args.band or ",".join(DEFAULT_BAND)).split(",") if b.strip()]
@@ -395,8 +369,6 @@ def build_plan(args, now):
     voices = [v.strip() for v in args.voices.split(",") if v.strip()] if args.voices else list(cat_voices)
     trials = int(clamp(args.trials, 10, 120))
     ratio = round(clamp(float(args.untrained_ratio), 0.0, 1.0), 3)
-    production_pairs = int(clamp(args.production_pairs, 0, 30))
-    production_threshold = int(clamp(args.production_threshold, 0, 100))
     max_level = int(clamp(args.max_level, 1, 4))
     weekly_minutes = int(clamp(args.weekly_minutes, 0, 300))
     pins = parse_pins(args.pin, contrasts)
@@ -411,15 +383,13 @@ def build_plan(args, now):
         "voices": voices,
         "band": band,
         "feedback": args.feedback,
-        "production_pairs": production_pairs,
-        "production_threshold": production_threshold,
         "max_level": max_level,
         "levels": pins,
         "weekly_minutes_target": weekly_minutes,
         "weights": weights,
     }
     info = {
-        "scores": scores, "counts": counts, "misses": misses, "prod_misses": prod_misses,
+        "scores": scores, "counts": counts, "misses": misses,
         "regressed": regressed,
         "sessions_used": n_sessions, "used_defaults": used_defaults,
         "contrasts": contrasts,
@@ -430,24 +400,22 @@ def build_plan(args, now):
 
 
 def print_table(plan, info, out=sys.stderr):
-    print("%-10s %7s %7s %8s %7s %7s" % ("contrast", "ledger", "misses", "say-miss", "score", "weight"), file=out)
+    print("%-10s %7s %7s %7s %7s" % ("contrast", "ledger", "misses", "score", "weight"), file=out)
     for cid, _dw, po in info["contrasts"]:
         tag = "  (production only)" if po else ""
         if cid in info["regressed"]:
             tag += "  (regression: -%.0f points, x%.1f)" % (info["regressed"][cid], REGRESSION_FACTOR)
-        print("%-10s %7d %7d %8d %7d %7.2f%s" % (
+        print("%-10s %7d %7d %7d %7.2f%s" % (
             cid, info["counts"].get(cid, 0), info["misses"].get(cid, 0),
-            info["prod_misses"].get(cid, 0), info["scores"].get(cid, 0),
-            plan["weights"][cid], tag), file=out)
+            info["scores"].get(cid, 0), plan["weights"][cid], tag), file=out)
     if info["used_defaults"]:
         print("no evidence in ledger or recent sessions: catalog default weights", file=out)
     print("sessions in window: %d; trials %d, untrained_ratio %s, band %s%s, feedback %s" % (
         info["sessions_used"], plan["trials_per_session"], plan["untrained_ratio"],
         ",".join(plan["band"]), " (widened: probe shortfall)" if info["band_widened"] else "",
         plan["feedback"]), file=out)
-    print("say it: %d pairs, threshold %d; max_level %d, pinned %s; weekly target %d min" % (
-        plan["production_pairs"], plan["production_threshold"], plan["max_level"],
-        json.dumps(plan["levels"]) if plan["levels"] else "none",
+    print("max_level %d, pinned %s; weekly target %d min" % (
+        plan["max_level"], json.dumps(plan["levels"]) if plan["levels"] else "none",
         plan["weekly_minutes_target"]), file=out)
     if info["trials"]:
         print("untrained shortfall in window: %d of %d trials (%.0f%%)" % (
@@ -466,9 +434,8 @@ def write_plan(plan, path):
 
 # ----------------------------------------------------------------- selftest
 
-def _session(sid, started, rows, shortfall=0, production=None, levels=None):
-    """Synthetic session: rows are (contrast, trained, correct); production is a
-    list of (contrast, points) Say-it pairs (None = block skipped)."""
+def _session(sid, started, rows, shortfall=0, levels=None):
+    """Synthetic session: rows are (contrast, trained, correct)."""
     trials = []
     for i, (contrast, trained, correct) in enumerate(rows, 1):
         trials.append({
@@ -479,20 +446,15 @@ def _session(sid, started, rows, shortfall=0, production=None, levels=None):
         })
     n = len(trials)
     c = sum(1 for t in trials if t["correct"])
-    prod = None
-    if production is not None:
-        prod = [{"i": i, "contrast": pc, "pair": pc + ":a-b", "a": "a", "b": "b", "points": pts,
-                 "level": (levels or {}).get(pc, 1), "words": {}}
-                for i, (pc, pts) in enumerate(production, 1)]
     return {
         "version": 1, "id": sid, "started": started, "ended": started,
         "app_version": "0.1.0", "catalog_version": "test", "plan_source": "coach",
         "plan_written": None, "voices": ["en-GB-SoniaNeural"], "trials": trials,
-        "levels": levels or {}, "production": prod,
+        "levels": levels or {},
         "summary": {"trials": n, "correct": c, "pct": c / n if n else 0.0,
                     "untrained_trials": 0, "untrained_correct": 0, "untrained_pct": None,
                     "duration_s": 60, "mean_rt_ms": 900, "untrained_shortfall": shortfall,
-                    "contrasts": {}, "production": None},
+                    "contrasts": {}},
     }
 
 
@@ -562,21 +524,18 @@ def selftest():
         assert info["shortfall"] == 0 and info["trials"] == 9 and not info["band_widened"]
         assert back["feedback"] == "brief"
         assert back["voices"] == ["en-GB-SoniaNeural", "en-GB-RyanNeural"]
-        assert back["production_pairs"] == 8 and back["production_threshold"] == 60
         assert back["max_level"] == 4 and back["levels"] == {} and back["weekly_minutes_target"] == 20
-        assert info["prod_misses"] == {} and info["regressed"] == {}
+        assert info["regressed"] == {}
         assert sorted(os.listdir(tmp)) == ["ledger.json", "plan.json", "sessions"], os.listdir(tmp)
 
-        # the new levers, --pin repeated, clamping
-        args_l = parse_args(["--out", out, "--production-pairs", "12", "--production-threshold", "70",
+        # the level levers, --pin repeated, clamping
+        args_l = parse_args(["--out", out,
                              "--max-level", "3", "--pin", "th=2", "--pin", "s/z=1", "--weekly-minutes", "45"])
         plan_l, _ = build_plan(args_l, now)
-        assert plan_l["production_pairs"] == 12 and plan_l["production_threshold"] == 70
         assert plan_l["max_level"] == 3 and plan_l["levels"] == {"th": 2, "s/z": 1}
         assert plan_l["weekly_minutes_target"] == 45
-        plan_c, _ = build_plan(parse_args(["--out", out, "--production-pairs", "99", "--production-threshold", "-1",
+        plan_c, _ = build_plan(parse_args(["--out", out,
                                            "--max-level", "9", "--weekly-minutes", "1000"]), now)
-        assert plan_c["production_pairs"] == 30 and plan_c["production_threshold"] == 0
         assert plan_c["max_level"] == 4 and plan_c["weekly_minutes_target"] == 300
         for bad_pin in ("th", "th=5", "th=x"):
             try:
@@ -584,28 +543,6 @@ def selftest():
                 raise AssertionError("--pin %s accepted" % bad_pin)
             except SystemExit as e:
                 assert "--pin" in str(e), e
-
-        # Say-it misses (pairs scored < 2) weigh 3 each, only inside the window
-        say = os.path.join(tmp, "say")
-        os.makedirs(say)
-        say_data = [
-            ("20260910T070000Z", "2026-09-10T07:00:00Z", [("th", True, True)],
-             [("th", 2), ("th", 1), ("b/v", 0), ("s/z", 2)]),          # th 1 miss, b/v 1 miss
-            ("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", False, False)],
-             [("b/v", 1)]),                                             # th 1 untrained miss, b/v 1 miss
-            ("20260801T070000Z", "2026-08-01T07:00:00Z", [("h", True, True)],
-             [("h", 0), ("h", 0)]),                                     # outside the window
-        ]
-        for sid, started, rows_, prod in say_data:
-            with open(os.path.join(say, sid + ".json"), "w", encoding="utf-8") as f:
-                json.dump(_session(sid, started, rows_, production=prod), f)
-        plan_s, info_s = build_plan(parse_args(["--out", out, "--sessions", say]), now)
-        assert info_s["prod_misses"] == {"th": 1, "b/v": 2}, info_s["prod_misses"]
-        assert info_s["misses"] == {"th": 1}
-        # scores: th 2*1 + 3*1 = 5, b/v 3*2 = 6 (max), s/z 0
-        assert info_s["scores"]["th"] == 5 and info_s["scores"]["b/v"] == 6, info_s["scores"]
-        assert plan_s["weights"]["b/v"] == 1.0 and plan_s["weights"]["th"] == 0.86, plan_s["weights"]
-        assert plan_s["weights"]["s/z"] == FLOOR and plan_s["weights"]["h"] == FLOOR
 
         # regression: last untrained percent >= 15 points below the mean of the
         # previous two probes -> weight x 1.5 capped at 1.0; sessions without an
@@ -713,8 +650,6 @@ def parse_args(argv):
     p.add_argument("--band", default=None, help="default high,mid,low (the ceiling; the level ladder picks within it)")
     p.add_argument("--feedback", default="full", choices=FEEDBACK)
     p.add_argument("--voices")
-    p.add_argument("--production-pairs", type=int, default=DEFAULT_PRODUCTION_PAIRS)
-    p.add_argument("--production-threshold", type=int, default=DEFAULT_PRODUCTION_THRESHOLD)
     p.add_argument("--max-level", type=int, default=DEFAULT_MAX_LEVEL)
     p.add_argument("--pin", action="append", default=[], metavar="CONTRAST=LEVEL")
     p.add_argument("--weekly-minutes", type=int, default=DEFAULT_WEEKLY_MINUTES)

@@ -14,8 +14,7 @@ Markdown report with
      against plan.weekly_minutes_target, the current and longest streak, and a
      one-line verdict;
   2. one row per contrast: level, untrained-perception percent per week over
-     the last four weeks, Say-it percent per week, the flag and the
-     recommendation;
+     the last four weeks, the flag and the recommendation;
   3. the plan changes it recommends, in words.
 
 Flags (thresholds from docs/CONTRACT.md, "Coach side"):
@@ -26,9 +25,7 @@ Flags (thresholds from docs/CONTRACT.md, "Coach side"):
               (at most one week without a probe between them); three probes
               spread wider than that are a consistency problem, not a plateau,
               and the row says so instead of raising the flag
-  mastered    the last three probes >= 95 % untrained and the last three
-              Say-it sessions >= 85 %
-  untested    the contrast has perception data but no Say-it pair yet
+  mastered    the last three probes >= 95 % untrained
 
 Recommended plan changes (written by --plan-out on top of plan-from-ledger's
 rules, starting from the levers *and the weights* of the current plan.json: a
@@ -41,9 +38,6 @@ plan-from-ledger's weights are kept for every contrast):
               a consistency problem, not a skill problem
   plateau     weight x 1.25, capped at 1.0; feedback "brief" at level >= 3
   mastered    weight to the floor (0.15) and the level pinned at 4
-  lag         production_pairs + 4 (max 30) when Say it lags perception by
-              >= 20 points on any contrast over the reported weeks
-  untested    production_pairs back to 8 when the plan has switched Say it off
   shortfall   band widened to high,mid,low when the recent sessions report
               untrained_shortfall on >= 10 % of their trials (docs/CONTRACT.md,
               "untrained_shortfall"); plan-from-ledger only warns when the
@@ -75,11 +69,8 @@ PLATEAU_FACTOR = 1.25
 PLATEAU_MAX_SPAN = PLATEAU_WEEKS + 1
 MASTERED_SESSIONS = 3
 MASTERED_UNTRAINED = 95.0
-MASTERED_PRODUCTION = 85.0
-LAG_POINTS = 20.0
-LAG_EXTRA_PAIRS = 4
 GOOD_DAYS_PER_WEEK = 3
-FLAG_ORDER = ("regression", "plateau", "mastered", "untested")
+FLAG_ORDER = ("regression", "plateau", "mastered")
 
 
 def here():
@@ -206,37 +197,32 @@ def weekly_consistency(days, weeks):
 
 
 def contrast_history(sessions):
-    """Per contrast: probes [(started, pct, level)], prods [(started, pct, pairs)],
-    weekly {week: {"ut", "uc", "pp", "pk"}}, sessions_in_week {week: n}."""
+    """Per contrast: probes [(started, pct, level)],
+    weekly {week: {"ut", "uc"}}, sessions_in_week {week: n}."""
     hist = {}
     sessions_in_week = {}
     for started, s in sessions:
         week = iso_week(started)
         sessions_in_week[week] = sessions_in_week.get(week, 0) + 1
         for c, g in PFL.session_contrast_stats(s).items():
-            h = hist.setdefault(c, {"probes": [], "prods": [], "weekly": {}, "level": None})
-            wk = h["weekly"].setdefault(week, {"ut": 0, "uc": 0, "pp": 0, "pk": 0, "levels": set()})
+            h = hist.setdefault(c, {"probes": [], "weekly": {}, "level": None})
+            wk = h["weekly"].setdefault(week, {"ut": 0, "uc": 0, "levels": set()})
             if g["untrained_trials"]:
                 h["probes"].append((started, 100.0 * g["untrained_correct"] / g["untrained_trials"], g["level"]))
                 wk["ut"] += g["untrained_trials"]
                 wk["uc"] += g["untrained_correct"]
-            if g["prod_pairs"]:
-                h["prods"].append((started, 100.0 * g["prod_points"] / (2.0 * g["prod_pairs"]), g["prod_pairs"]))
-                wk["pp"] += g["prod_pairs"]
-                wk["pk"] += g["prod_points"]
             if g["level"] is not None:
                 wk["levels"].add(g["level"])
                 h["level"] = g["level"]
     return hist, sessions_in_week
 
 
-def weekly_pct(h, week, kind):
+def weekly_pct(h, week):
+    """Untrained percent of the contrast in that week, or None without a probe."""
     wk = h["weekly"].get(week)
     if not wk:
         return None
-    if kind == "untrained":
-        return 100.0 * wk["uc"] / wk["ut"] if wk["ut"] else None
-    return 100.0 * wk["pk"] / (2.0 * wk["pp"]) if wk["pp"] else None
+    return 100.0 * wk["uc"] / wk["ut"] if wk["ut"] else None
 
 
 # ------------------------------------------------------------------- flags
@@ -254,9 +240,9 @@ def flag_contrast(h, sessions_in_week):
         detail["regression_week"] = iso_week(last_started)
         detail["lonely"] = sessions_in_week.get(iso_week(last_started), 0) <= 1
     # plateau: the last three weeks with probes
-    weeks = sorted(w for w in h["weekly"] if weekly_pct(h, w, "untrained") is not None)[-PLATEAU_WEEKS:]
+    weeks = sorted(w for w in h["weekly"] if weekly_pct(h, w) is not None)[-PLATEAU_WEEKS:]
     if len(weeks) == PLATEAU_WEEKS:
-        pcts = [weekly_pct(h, w, "untrained") for w in weeks]
+        pcts = [weekly_pct(h, w) for w in weeks]
         levels = set()
         for w in weeks:
             levels |= h["weekly"][w]["levels"]
@@ -275,35 +261,12 @@ def flag_contrast(h, sessions_in_week):
                 # (docs/ADAPTATION.md, "Consistency"), not a plateau
                 detail["plateau_scattered"] = weeks
                 detail["plateau_span"] = span
-    # mastered: last three probes and last three Say-it sessions
-    prod_pcts = [p[1] for p in h["prods"]]
-    if (len(probe_pcts) >= MASTERED_SESSIONS and len(prod_pcts) >= MASTERED_SESSIONS
-            and all(p >= MASTERED_UNTRAINED for p in probe_pcts[-MASTERED_SESSIONS:])
-            and all(p >= MASTERED_PRODUCTION for p in prod_pcts[-MASTERED_SESSIONS:])):
+    # mastered: the last three probes
+    if (len(probe_pcts) >= MASTERED_SESSIONS
+            and all(p >= MASTERED_UNTRAINED for p in probe_pcts[-MASTERED_SESSIONS:])):
         flags.add("mastered")
-    if not h["prods"]:
-        flags.add("untested")
     return flags, detail
 
-
-def production_lag(h, weeks):
-    """Points by which Say it lags untrained perception over the given weeks,
-    or None without both signals."""
-    ut = uc = pp = pk = 0
-    for w in weeks:
-        wk = h["weekly"].get(w)
-        if not wk:
-            continue
-        ut += wk["ut"]
-        uc += wk["uc"]
-        pp += wk["pp"]
-        pk += wk["pk"]
-    if not ut or not pp:
-        return None
-    return 100.0 * uc / ut - 100.0 * pk / (2.0 * pp)
-
-
-# ------------------------------------------------------------------ analyse
 
 def analyse(folder, weeks_n, now, catalog=None, ledger=None, note=None, plan_out=None):
     """Everything the report and the plan need, as one dict."""
@@ -352,7 +315,6 @@ def analyse(folder, weeks_n, now, catalog=None, ledger=None, note=None, plan_out
     order = [c[0] for c in contrasts_cat] + sorted(c for c in hist if c not in {x[0] for x in contrasts_cat})
     state_contrasts = (state or {}).get("contrasts") if state else None
     rows = []
-    lag_any = []
     for c in order:
         h = hist.get(c)
         if h is None:
@@ -364,26 +326,20 @@ def analyse(folder, weeks_n, now, catalog=None, ledger=None, note=None, plan_out
         if level is None:
             level = h["level"]
         flags, detail = flag_contrast(h, sessions_in_week)
-        lag = production_lag(h, weeks)
-        if lag is not None and lag >= LAG_POINTS:
-            detail["lag"] = lag
-            lag_any.append(c)
         rows.append({
             "contrast": c, "level": level, "flags": flags, "detail": detail,
-            "untrained": [weekly_pct(h, w, "untrained") for w in spark_weeks],
-            "production": [weekly_pct(h, w, "production") for w in spark_weeks],
+            "untrained": [weekly_pct(h, w) for w in spark_weeks],
             "last_untrained": h["probes"][-1][1] if h["probes"] else None,
-            "last_production": h["prods"][-1][1] if h["prods"] else None,
         })
 
-    new_plan, base_info = build_plan(folder, plan, rows, lag_any, now, catalog, ledger, note, plan_out)
-    changes = plan_changes(plan, new_plan, rows, lag_any, base_info)
+    new_plan, base_info = build_plan(folder, plan, rows, now, catalog, ledger, note, plan_out)
+    changes = plan_changes(plan, new_plan, rows, base_info)
     for r in rows:
         r["recommendation"] = recommendation(r, new_plan, base_info)
     return {
         "folder": folder, "now": now, "plan": plan, "state": state, "sessions": sessions,
         "weeks": weeks, "spark_weeks": spark_weeks, "consistency": consistency,
-        "rows": rows, "lag": lag_any, "new_plan": new_plan, "base_info": base_info, "changes": changes,
+        "rows": rows, "new_plan": new_plan, "base_info": base_info, "changes": changes,
     }
 
 
@@ -413,9 +369,7 @@ def plan_argv(folder, plan, catalog, ledger, note, plan_out):
     voices = plan.get("voices")
     if isinstance(voices, list) and voices and all(isinstance(v, str) for v in voices):
         argv += ["--voices", ",".join(voices)]
-    for key, opt in (("production_pairs", "--production-pairs"),
-                     ("production_threshold", "--production-threshold"),
-                     ("max_level", "--max-level"),
+    for key, opt in (("max_level", "--max-level"),
                      ("weekly_minutes_target", "--weekly-minutes")):
         if is_int(plan.get(key)):
             argv += [opt, str(plan[key])]
@@ -467,7 +421,7 @@ def widen_band(new_plan, info):
                        ",".join(info["band_before"]), ",".join(new_plan["band"])))
 
 
-def build_plan(folder, plan, rows, lag_any, now, catalog, ledger, note, plan_out):
+def build_plan(folder, plan, rows, now, catalog, ledger, note, plan_out):
     """The recommended plan: the current plan's levers and weights, with
     plan-from-ledger's rules and the flag deltas where the evidence justifies."""
     args = PFL.parse_args(plan_argv(folder, plan, catalog, ledger, note, plan_out))
@@ -486,10 +440,6 @@ def build_plan(folder, plan, rows, lag_any, now, catalog, ledger, note, plan_out
         if "mastered" in r["flags"]:
             weights[c] = PFL.round2(PFL.FLOOR)
             new_plan["levels"][c] = 4
-    if lag_any:
-        new_plan["production_pairs"] = min(30, new_plan["production_pairs"] + LAG_EXTRA_PAIRS)
-    if any("untested" in r["flags"] for r in rows) and new_plan["production_pairs"] == 0:
-        new_plan["production_pairs"] = PFL.DEFAULT_PRODUCTION_PAIRS
     widen_band(new_plan, info)
     return new_plan, info
 
@@ -515,20 +465,16 @@ def recommendation(r, new_plan, info):
                      % (d["plateau_mean"], d["plateau_span"], ", ".join(d["plateau_scattered"])))
     if "mastered" in r["flags"]:
         parts.append("weight to the floor %.2f, level pinned at 4" % w)
-    if "lag" in d:
-        parts.append("Say it lags perception by %.0f points: production_pairs %d" % (d["lag"], new_plan["production_pairs"]))
-    if "untested" in r["flags"]:
-        parts.append("no Say-it data yet" + (": switch production back on" if (info and new_plan["production_pairs"] == 0) else ""))
     return "; ".join(parts) if parts else "keep"
 
 
-def plan_changes(old, new, rows, lag_any, info):
+def plan_changes(old, new, rows, info):
     """Human sentences describing new against old (the current plan.json)."""
     old = old or {}
     out = []
     reasons = {}
     for r in rows:
-        tags = [f for f in FLAG_ORDER if f in r["flags"] and f != "untested"]
+        tags = [f for f in FLAG_ORDER if f in r["flags"]]
         if tags:
             reasons[r["contrast"]] = ", ".join(tags)
     old_w = old.get("weights") if isinstance(old.get("weights"), dict) else {}
@@ -543,14 +489,10 @@ def plan_changes(old, new, rows, lag_any, info):
             # plan does not name), never from a silent rewrite of the plan
             why = "ledger" if info.get("from_ledger") else "not in the current plan"
         out.append("%s: weight %s -> %.2f (%s)" % (c, "%.2f" % ow if is_num(ow) else "unset", w, why))
-    for key in ("feedback", "production_pairs", "production_threshold", "max_level", "trials_per_session",
+    for key in ("feedback", "max_level", "trials_per_session",
                 "untrained_ratio", "weekly_minutes_target"):
         if old.get(key) != new.get(key):
-            why = ""
-            if key == "feedback":
-                why = " (plateau at level >= 3)"
-            elif key == "production_pairs" and lag_any:
-                why = " (Say it lags perception on %s)" % ", ".join(lag_any)
+            why = " (plateau at level >= 3)" if key == "feedback" else ""
             out.append("%s: %s -> %s%s" % (key, json.dumps(old.get(key)), json.dumps(new.get(key)), why))
     old_l = old.get("levels") if isinstance(old.get("levels"), dict) else {}
     for c, lv in new["levels"].items():
@@ -608,17 +550,17 @@ def render_markdown(a):
                   c["mean_days"], c["mean_minutes"], c["target"]),
               "", "**Verdict:** %s." % c["verdict"], ""]
     lines += ["## Contrasts", "",
-              "Untrained %% and Say it %% per week, oldest first (%s); `-` is a week without data." % " ".join(a["spark_weeks"]),
+              "Untrained %% per week, oldest first (%s); `-` is a week without data." % " ".join(a["spark_weeks"]),
               "",
-              "| Contrast | Level | Untrained % | Say it % | Flag | Recommendation |",
-              "|---|---:|---|---|---|---|"]
+              "| Contrast | Level | Untrained % | Flag | Recommendation |",
+              "|---|---:|---|---|---|"]
     if not a["rows"]:
-        lines.append("| (no session data) | | | | | |")
+        lines.append("| (no session data) | | | | |")
     for r in a["rows"]:
         flags = ", ".join(f for f in FLAG_ORDER if f in r["flags"]) or "-"
-        lines.append("| %s | %s | %s | %s | %s | %s |" % (
+        lines.append("| %s | %s | %s | %s | %s |" % (
             r["contrast"], "-" if r["level"] is None else r["level"], spark(r["untrained"]),
-            spark(r["production"]), flags, r["recommendation"]))
+            flags, r["recommendation"]))
     lines += ["", "## Recommended plan changes", ""]
     if a["changes"]:
         lines += ["- " + ch for ch in a["changes"]]
@@ -653,15 +595,13 @@ def summary_lines(a, out_path, plan_path):
     flags = {f: [r["contrast"] for r in a["rows"] if f in r["flags"]] for f in FLAG_ORDER}
     latest = [r for r in a["rows"] if r["last_untrained"] is not None]
     perc = ", ".join("%s %s" % (r["contrast"], pct_str(r["last_untrained"])) for r in latest) or "none"
-    prod = ", ".join("%s %s" % (r["contrast"], pct_str(r["last_production"]))
-                     for r in a["rows"] if r["last_production"] is not None) or "none"
     wrote = [p for p in (out_path, plan_path) if p]
     return [
         "Progress report %s: %d session file(s), weeks %s to %s" % (
             a["now"].strftime("%Y-%m-%d"), len(a["sessions"]), a["weeks"][0], a["weeks"][-1]),
         "Consistency: %.1f days and %.0f min a week vs %d; streak %d (longest %d); %s" % (
             c["mean_days"], c["mean_minutes"], c["target"], c["streak"], c["longest"], c["verdict"]),
-        "Last probe untrained %%: %s | last Say it %%: %s" % (perc, prod),
+        "Last probe untrained %%: %s" % perc,
         "Flags: " + "; ".join("%s %s" % (f, ", ".join(v) if v else "-") for f, v in flags.items()),
         "Plan: %d change(s)%s%s" % (len(a["changes"]),
                                      " - " + "; ".join(a["changes"][:3]) + (" ..." if len(a["changes"]) > 3 else "")
@@ -672,10 +612,9 @@ def summary_lines(a, out_path, plan_path):
 
 # ----------------------------------------------------------------- selftest
 
-def _session(sid, started, probes, production=None, levels=None, duration=180, shortfall=0):
-    """probes: [(contrast, untrained trials, untrained correct)]; production:
-    [(contrast, points)]. Rows are shaped like the contract's; the summary is
-    computed from them."""
+def _session(sid, started, probes, levels=None, duration=180, shortfall=0):
+    """probes: [(contrast, untrained trials, untrained correct)]. Rows are
+    shaped like the contract's; the summary is computed from them."""
     trials = []
     for contrast, n, k in probes:
         for j in range(n):
@@ -684,21 +623,16 @@ def _session(sid, started, probes, production=None, levels=None, duration=180, s
                            "target": "a", "other": "b", "chosen": "a" if ok else "b", "correct": ok,
                            "voice": "en-GB-SoniaNeural", "rt_ms": 900, "replays": 0, "trained": False,
                            "band": "high", "position": "initial"})
-    prod = None
-    if production is not None:
-        prod = [{"i": i, "contrast": c, "pair": c + ":a-b", "a": "a", "b": "b", "points": pts,
-                 "level": (levels or {}).get(c, 1), "words": {}}
-                for i, (c, pts) in enumerate(production, 1)]
     n = len(trials)
     k = sum(1 for t in trials if t["correct"])
     ended = PFL.parse_ts(started) + _dt.timedelta(seconds=duration)
     return {"version": 1, "id": sid, "started": started, "ended": ended.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "app_version": "0.1.0", "catalog_version": "t", "plan_source": "coach", "plan_written": None,
-            "voices": ["en-GB-SoniaNeural"], "trials": trials, "levels": levels or {}, "production": prod,
+            "voices": ["en-GB-SoniaNeural"], "trials": trials, "levels": levels or {},
             "summary": {"trials": n, "correct": k, "pct": k / n if n else 0.0, "untrained_trials": n,
                         "untrained_correct": k, "untrained_pct": k / n if n else None,
                         "duration_s": duration, "mean_rt_ms": 900, "untrained_shortfall": shortfall,
-                        "contrasts": {}, "production": None}}
+                        "contrasts": {}}}
 
 
 def _write(folder, plan, state, sessions):
@@ -722,31 +656,29 @@ def selftest():
     plan = {"version": 1, "written": "2026-09-01T18:00:00Z", "written_by": "coach", "note": "keep going",
             "trials_per_session": 30, "untrained_ratio": 0.5, "voices": ["en-GB-SoniaNeural"],
             "band": ["high", "mid", "low"], "feedback": "full",
-            "production_pairs": 8, "production_threshold": 60, "max_level": 4, "levels": {},
-            "weekly_minutes_target": 20,
+            "max_level": 4, "levels": {}, "weekly_minutes_target": 20,
             "weights": {"th": 0.6, "s/z": 0.6, "i/ii": 0.6, "b/v": 0.6, "cat/cut": 0.6}}
     lv = {"th": 2, "s/z": 3, "i/ii": 3, "b/v": 1, "cat/cut": 2}
     sessions = [
-        # W34: th 80, s/z 70, i/ii 100 (+ Say it 100), b/v 50, cat/cut 100 (+ Say it 50)
+        # W34: th 80, s/z 70, i/ii 100, b/v 50, cat/cut 100
         _session("20260818T070000Z", "2026-08-18T07:00:00Z",
                  [("th", 10, 8), ("s/z", 10, 7), ("i/ii", 10, 10), ("b/v", 10, 5), ("cat/cut", 10, 10)],
-                 [("i/ii", 2), ("i/ii", 2), ("cat/cut", 1), ("cat/cut", 1)], lv, 600),
-        _session("20260820T070000Z", "2026-08-20T07:00:00Z", [("th", 10, 8)], [], lv, 600),
-        # W35: th 80, s/z 75, i/ii 100 (+100), b/v 60, cat/cut 100 (+25)
+                 lv, 600),
+        _session("20260820T070000Z", "2026-08-20T07:00:00Z", [("th", 10, 8)], lv, 600),
+        # W35: th 80, s/z 75, i/ii 100, b/v 60, cat/cut 100
         _session("20260825T070000Z", "2026-08-25T07:00:00Z",
                  [("th", 10, 8), ("s/z", 4, 3), ("i/ii", 10, 10), ("b/v", 10, 6), ("cat/cut", 10, 10)],
-                 [("i/ii", 2), ("i/ii", 2), ("cat/cut", 1), ("cat/cut", 0)], lv, 600),
-        _session("20260827T070000Z", "2026-08-27T07:00:00Z", [("b/v", 10, 6)], [], lv, 600),
-        _session("20260829T070000Z", "2026-08-29T07:00:00Z", [("b/v", 10, 6)], [], lv, 600),
-        # W36: s/z 65, i/ii 95 (+87.5), b/v 50, cat/cut 100 (+50); no th probe
+                 lv, 600),
+        _session("20260827T070000Z", "2026-08-27T07:00:00Z", [("b/v", 10, 6)], lv, 600),
+        _session("20260829T070000Z", "2026-08-29T07:00:00Z", [("b/v", 10, 6)], lv, 600),
+        # W36: s/z 65, i/ii 95, b/v 50, cat/cut 100; no th probe
         _session("20260901T070000Z", "2026-09-01T07:00:00Z",
-                 [("s/z", 20, 13), ("i/ii", 20, 19), ("b/v", 10, 5), ("cat/cut", 10, 10)],
-                 [("i/ii", 2), ("i/ii", 2), ("i/ii", 2), ("i/ii", 1), ("cat/cut", 1), ("cat/cut", 1)], lv, 600),
-        _session("20260903T070000Z", "2026-09-03T07:00:00Z", [("b/v", 10, 5)], [], lv, 600),
-        _session("20260905T070000Z", "2026-09-05T07:00:00Z", [("b/v", 10, 5)], [], lv, 600),
-        # W37 (this week): th 60 in the only session of the week -> regression, lonely
-        _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", 10, 6), ("cat/cut", 10, 10)],
-                 [("cat/cut", 1), ("cat/cut", 0)], lv, 300),
+                 [("s/z", 20, 13), ("i/ii", 20, 19), ("b/v", 10, 5), ("cat/cut", 10, 10)], lv, 600),
+        _session("20260903T070000Z", "2026-09-03T07:00:00Z", [("b/v", 10, 5)], lv, 600),
+        _session("20260905T070000Z", "2026-09-05T07:00:00Z", [("b/v", 10, 5)], lv, 600),
+        # W37 (this week): th 60 in the only session of the week -> regression, lonely.
+        # cat/cut 90 keeps its last three probes off the mastered bar (100, 100, 90).
+        _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", 10, 6), ("cat/cut", 10, 9)], lv, 300),
     ]
     with tempfile.TemporaryDirectory() as tmp:
         folder = os.path.join(tmp, "f")
@@ -755,21 +687,17 @@ def selftest():
         out_plan = os.path.join(tmp, "plan-new.json")
         a = analyse(folder, 6, now, plan_out=out_plan)
         flags = {r["contrast"]: r["flags"] for r in a["rows"]}
-        assert flags == {"th": {"regression", "untested"}, "s/z": {"plateau", "untested"},
-                         "i/ii": {"mastered"}, "b/v": {"untested"}, "cat/cut": set()}, flags
+        assert flags == {"th": {"regression"}, "s/z": {"plateau"},
+                         "i/ii": {"mastered"}, "b/v": set(), "cat/cut": set()}, flags
         det = {r["contrast"]: r["detail"] for r in a["rows"]}
         assert det["th"]["drop"] == 20.0 and det["th"]["lonely"] and det["th"]["regression_week"] == "2026-W37"
         assert det["s/z"]["plateau_weeks"] == ["2026-W34", "2026-W35", "2026-W36"], det["s/z"]
         assert det["s/z"]["plateau_level"] == 3 and abs(det["s/z"]["plateau_mean"] - 70) < 1e-9
-        assert "lag" in det["cat/cut"] and abs(det["cat/cut"]["lag"] - 62.5) < 1e-9, det["cat/cut"]
-        assert a["lag"] == ["cat/cut"]
         levels = {r["contrast"]: r["level"] for r in a["rows"]}
         assert levels == lv, levels
         # sparkline: last four weeks W34..W37
         by = {r["contrast"]: r for r in a["rows"]}
         assert by["th"]["untrained"] == [80.0, 80.0, None, 60.0], by["th"]["untrained"]
-        assert by["i/ii"]["production"] == [100.0, 100.0, 87.5, None], by["i/ii"]["production"]
-        assert by["b/v"]["production"] == [None] * 4
 
         # the plan: the current plan's weights, moved only where the evidence says so
         base = a["base_info"]["base_weights"]
@@ -786,22 +714,19 @@ def selftest():
         # a contrast the plan does not name is filled in from plan-from-ledger
         assert new["weights"]["j/y"] == base["j/y"] == PFL.FLOOR, new["weights"]["j/y"]
         assert new["feedback"] == "brief"                       # plateau at level 3
-        assert new["production_pairs"] == 12                    # lag on cat/cut
         assert new["trials_per_session"] == 30 and new["note"] == "keep going"   # carried over
         assert new["band"] == ["high", "mid", "low"] and new["weekly_minutes_target"] == 20
         changes = "\n".join(a["changes"])
         assert "i/ii: weight 0.60 -> 0.15 (mastered)" in changes, changes
         assert "levels[i/ii]: null -> 4 (mastered)" in changes, changes
         assert 'feedback: "full" -> "brief" (plateau at level >= 3)' in changes, changes
-        assert "production_pairs: 8 -> 12 (Say it lags perception on cat/cut)" in changes, changes
         assert "th: weight 0.60 -> 0.90 (regression)" in changes, changes
         assert "s/z: weight 0.60 -> 0.75 (plateau)" in changes, changes
         assert "b/v: weight" not in changes and "cat/cut: weight" not in changes, changes
         assert "j/y: weight unset -> 0.15 (not in the current plan)" in changes, changes
         rec = {r["contrast"]: r["recommendation"] for r in a["rows"]}
         assert "consistency problem" in rec["th"] and "feedback brief" in rec["s/z"], rec
-        assert rec["cat/cut"].startswith("Say it lags perception by 62 points"), rec
-        assert rec["b/v"] == "no Say-it data yet", rec
+        assert rec["cat/cut"] == "keep" and rec["b/v"] == "keep", rec
 
         # consistency: 6 weeks W32..W37, sessions from files (no state.json)
         c = a["consistency"]
@@ -822,11 +747,11 @@ def selftest():
             back = json.load(f)
         assert back == new
         assert "## Consistency" in md and "## Contrasts" in md and "## Recommended plan changes" in md
-        assert "| th | 2 | 80 80 - 60 | - - - - | regression, untested |" in md, md
-        assert "| i/ii | 3 | 100 100 95 - | 100 100 88 - | mastered |" in md, md
+        assert "| th | 2 | 80 80 - 60 | regression |" in md, md
+        assert "| i/ii | 3 | 100 100 95 - | mastered |" in md, md
         assert "single session" in md
         lines = summary_lines(a, out_md, out_plan)
-        assert len(lines) == 5 and lines[3].startswith("Flags: regression th; plateau s/z; mastered i/ii; untested th, s/z, b/v"), lines
+        assert len(lines) == 5 and lines[3] == "Flags: regression th; plateau s/z; mastered i/ii", lines
 
         # state.json wins for streak, longest streak and practice days; a clean
         # history (no flags) recommends no weight change beyond the evidence
@@ -847,9 +772,9 @@ def selftest():
 
         clean = os.path.join(tmp, "clean")
         _write(clean, plan, None, [
-            _session("20260901T070000Z", "2026-09-01T07:00:00Z", [("th", 10, 9)], [("th", 2)], lv),
-            _session("20260903T070000Z", "2026-09-03T07:00:00Z", [("th", 10, 9)], [("th", 2)], lv),
-            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", 10, 8)], [("th", 1)], lv),
+            _session("20260901T070000Z", "2026-09-01T07:00:00Z", [("th", 10, 9)], lv),
+            _session("20260903T070000Z", "2026-09-03T07:00:00Z", [("th", 10, 9)], lv),
+            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", 10, 8)], lv),
         ])
         a3 = analyse(clean, 6, now)
         assert [r["flags"] for r in a3["rows"]] == [set()], a3["rows"]
@@ -859,7 +784,7 @@ def selftest():
         assert all(a3["new_plan"]["weights"][c] == 0.6 for c in named), a3["new_plan"]["weights"]
         assert a3["base_info"]["base_weights"]["s/z"] == PFL.FLOOR    # what the score rule alone would say
         assert not [ch for ch in a3["changes"] if ch.split(":")[0] in named], a3["changes"]
-        assert a3["new_plan"]["feedback"] == "full" and a3["new_plan"]["production_pairs"] == 8
+        assert a3["new_plan"]["feedback"] == "full"
         assert a3["new_plan"]["levels"] == {}
         assert [r["recommendation"] for r in a3["rows"]] == ["keep"]
         # with a ledger the coach's own counts are the evidence: plan-from-ledger's
@@ -872,19 +797,12 @@ def selftest():
         assert a3b["new_plan"]["weights"] == a3b["base_info"]["base_weights"], a3b["new_plan"]["weights"]
         assert a3b["new_plan"]["weights"]["th"] == 1.0 and a3b["new_plan"]["weights"]["b/v"] > PFL.FLOOR
         assert "b/v: weight 0.60 -> %.2f (ledger)" % a3b["new_plan"]["weights"]["b/v"] in "\n".join(a3b["changes"]), a3b["changes"]
-        # production switched off while a contrast is untested -> back on
-        plan_off = dict(plan, production_pairs=0)
-        off = os.path.join(tmp, "off")
-        _write(off, plan_off, None, [_session("20260909T070000Z", "2026-09-09T07:00:00Z", [("th", 10, 8)], None, lv)])
-        a4 = analyse(off, 6, now)
-        assert a4["rows"][0]["flags"] == {"untested"} and a4["new_plan"]["production_pairs"] == 8
-        assert "production_pairs: 0 -> 8" in "\n".join(a4["changes"])
         # the honest probe running dry: the recommended band widens even though
         # the current plan names a narrower one (docs/CONTRACT.md, untrained_shortfall)
         narrow = dict(plan, band=["high", "mid"])
         dry = os.path.join(tmp, "dry")
         _write(dry, narrow, None, [_session("20260909T070000Z", "2026-09-09T07:00:00Z",
-                                            [("th", 10, 8)], [("th", 2)], lv, 300, shortfall=2)])
+                                            [("th", 10, 8)], lv, 300, shortfall=2)])
         a6 = analyse(dry, 6, now)
         assert a6["base_info"]["shortfall"] == 2 and a6["base_info"]["trials"] == 10
         assert a6["base_info"]["band_widened"] and a6["base_info"]["band_before"] == ["high", "mid"]
@@ -896,7 +814,7 @@ def selftest():
         # below the 10 % mark the band is carried over untouched
         wet = os.path.join(tmp, "wet")
         _write(wet, narrow, None, [_session("20260909T070000Z", "2026-09-09T07:00:00Z",
-                                            [("th", 20, 16)], [("th", 2)], lv, 300, shortfall=1)])
+                                            [("th", 20, 16)], lv, 300, shortfall=1)])
         a7 = analyse(wet, 6, now)
         assert not a7["base_info"].get("band_widened") and a7["new_plan"]["band"] == ["high", "mid"]
         assert not [ch for ch in a7["changes"] if ch.startswith("band:")], a7["changes"]
@@ -905,9 +823,9 @@ def selftest():
         # not a plateau; three weeks with at most one gap still are one
         scattered = os.path.join(tmp, "scattered")
         _write(scattered, plan, None, [
-            _session("20260720T070000Z", "2026-07-20T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
-            _session("20260804T070000Z", "2026-08-04T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
-            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
+            _session("20260720T070000Z", "2026-07-20T07:00:00Z", [("s/z", 10, 7)], lv),
+            _session("20260804T070000Z", "2026-08-04T07:00:00Z", [("s/z", 10, 7)], lv),
+            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("s/z", 10, 7)], lv),
         ])
         a8 = analyse(scattered, 10, now)
         r8 = a8["rows"][0]
@@ -919,9 +837,9 @@ def selftest():
         assert "not counted as a plateau" in render_markdown(a8)
         gapped = os.path.join(tmp, "gapped")
         _write(gapped, plan, None, [
-            _session("20260818T070000Z", "2026-08-18T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
-            _session("20260901T070000Z", "2026-09-01T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
-            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("s/z", 10, 7)], [("s/z", 2)], lv),
+            _session("20260818T070000Z", "2026-08-18T07:00:00Z", [("s/z", 10, 7)], lv),
+            _session("20260901T070000Z", "2026-09-01T07:00:00Z", [("s/z", 10, 7)], lv),
+            _session("20260909T070000Z", "2026-09-09T07:00:00Z", [("s/z", 10, 7)], lv),
         ])
         a9 = analyse(gapped, 10, now)
         assert a9["rows"][0]["flags"] == {"plateau"}, a9["rows"][0]

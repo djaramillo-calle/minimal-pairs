@@ -51,19 +51,47 @@ if [ -f scripts/validate-contract.py ] && [ -f docs/CONTRACT.md ]; then
     tmp="$(mktemp -d)"
     mkdir -p "$tmp/sessions"
     python3 - "$tmp" <<'DOCJSON'
-import json, os, re, sys
+import json, os, re, sys, zipfile
 out = sys.argv[1]
 blocks = re.findall(r"```json\n(.*?)```", open("docs/CONTRACT.md", encoding="utf-8").read(), re.S)
+sayit_words = sayit_results = None
 for text in blocks:
     obj = json.loads(text)                      # a malformed example fails here
     if "weights" in obj:
         name = "plan.json"
+    elif "per_session" in obj:                  # sayit.zip words.json
+        sayit_words = obj
+        continue
+    elif "clip_played" in obj:                  # sayit/attempts/<ts>_<id>.json
+        d = os.path.join(out, "sayit", "attempts")
+        os.makedirs(d, exist_ok=True)
+        from datetime import datetime
+        stem = datetime.strptime(obj["started"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y%m%dT%H%M%SZ")
+        stem += "_" + re.sub(r"[^A-Za-z0-9._-]", "_", obj["id"])[:80]
+        with open(os.path.join(d, stem + ".json"), "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+        with open(os.path.join(d, stem + ".m4a"), "wb") as f:
+            f.write(b"m4a")
+        continue
+    elif isinstance(obj.get("words"), dict) and any(
+            isinstance(v, dict) and "status" in v for v in obj["words"].values()):
+        sayit_results = obj                     # sayit.zip results.json
+        continue
     elif "contrasts" in obj and "words" in obj:
         name = "state.json"
     else:
         name = os.path.join("sessions", obj["id"] + ".json")
     with open(os.path.join(out, name), "w", encoding="utf-8") as f:
         json.dump(obj, f)
+if sayit_words is not None or sayit_results is not None:
+    with zipfile.ZipFile(os.path.join(out, "sayit.zip"), "w") as z:
+        if sayit_words is not None:
+            z.writestr("words.json", json.dumps(sayit_words))
+            for w in sayit_words.get("words", []):
+                if w.get("clip"):
+                    z.writestr(w["clip"], b"OggS placeholder")
+        if sayit_results is not None:
+            z.writestr("results.json", json.dumps(sayit_results))
 with open(os.path.join(out, "catalog-version.txt"), "w", encoding="utf-8") as f:
     f.write("2026-09-11.2\n")
 print("extracted %d worked example(s)" % len(blocks))

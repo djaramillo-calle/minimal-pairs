@@ -174,12 +174,7 @@ private fun PlanSection(ui: SettingsUi) {
         Text(stringResource(R.string.settings_plan_band, plan.bands.joinToString(", ")))
         Text(stringResource(R.string.settings_plan_feedback, plan.feedback.key))
         Text(stringResource(R.string.settings_plan_voices, plan.voices.size))
-        // Say it, the level ladder and the consistency target (docs/CONTRACT.md levers table), read-only.
-        Text(
-            if (plan.productionOn) stringResource(R.string.settings_plan_production_pairs, plan.productionPairs)
-            else stringResource(R.string.settings_plan_production_off),
-        )
-        Text(stringResource(R.string.settings_plan_production_threshold, plan.productionThreshold))
+        // The level ladder and the consistency target (docs/CONTRACT.md levers table), read-only.
         Text(stringResource(R.string.settings_plan_max_level, plan.maxLevel))
         Text(
             stringResource(

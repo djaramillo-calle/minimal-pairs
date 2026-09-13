@@ -5,14 +5,13 @@ fixed decisions are in `docs/DESIGN.md`; the file contract with the coach in
 `docs/CONTRACT.md`; the scheduling rules in `docs/ADAPTATION.md`.
 
 ```
-MainActivity.kt        single activity, Compose, screen switch on AppViewModel.screen, RECORD_AUDIO prompt
-AppContainer.kt        process singletons: Prefs, DataFolder, ClipPack, ClipDownloader, PackRenderer, Player, Recorder, catalog
+MainActivity.kt        single activity, Compose, screen switch on AppViewModel.screen
+AppContainer.kt        process singletons: Prefs, DataFolder, ClipPack, ClipDownloader, PackRenderer, Player, catalog
 domain/                pure Kotlin, no android.* (see below)
 storage/               SAF data folder + private mirror + SharedPreferences
-clips/                 clip pack discovery (assets + downloaded), zip download / validation, Azure TTS + STT REST
-audio/                 WebM/Opus → PCM decode, silence trim, static AudioTrack playback, LRU cache,
-                       AudioRecord capture with an RMS end-of-utterance gate, WAV wrapping
-ui/                    AppViewModel (all state as StateFlow) + Home / Trial / Say it / Summary / Settings screens
+clips/                 clip pack discovery (assets + downloaded), zip download / validation, Azure TTS
+audio/                 WebM/Opus → PCM decode, silence trim, static AudioTrack playback, LRU cache
+ui/                    AppViewModel (all state as StateFlow) + Home / Trial / Summary / Settings screens
 ```
 
 ## Domain layer — `domain` (pure Kotlin, unit-tested in `app/src/test`)
@@ -24,11 +23,11 @@ The UI, audio and storage layers sit on top of this and never re-implement any o
 | Class | File / meaning |
 |---|---|
 | `Catalog`, `Contrast`, `Pair`, `PairWord` | `assets/catalog.json`. `Catalog.contrast(id)`, `Catalog.trainableContrasts`, `Catalog.allTrainableWords()`, `Contrast.trainablePairs`, `Contrast.trainableWords()`, `Pair.other(word)`, `Pair.side(word)`. Note the class is named `Pair` — import `com.djaramillo.minimalpairs.domain.model.Pair` explicitly to shadow `kotlin.Pair`. |
-| `Plan` | `plan.json`, every field nullable. Parse with `AppJson.json`; a parse failure means "no plan" → pass `null` to `effectivePlan`. Levers: `trials_per_session`, `untrained_ratio`, `voices`, `band`, `feedback`, `weights`, `production_pairs`, `production_threshold`, `max_level`, `levels`, `weekly_minutes_target`. |
+| `Plan` | `plan.json`, every field nullable. Parse with `AppJson.json`; a parse failure means "no plan" → pass `null` to `effectivePlan`. Levers: `trials_per_session`, `untrained_ratio`, `voices`, `band`, `feedback`, `weights`, `max_level`, `levels`, `weekly_minutes_target`. |
 | `Override(enabled, weights, trialsPerSession)` | the learner's manual override from Settings (stored in SharedPreferences by `storage.Prefs`). |
-| `EffectivePlan` | resolved plan: `planSource` (`"coach"`/`"default"`/`"override"`, see `PlanSource`), `planWritten`, `note`, `trialsPerSession`, `untrainedRatio`, `voices`, `bands` (the **ceiling**, default all three), `feedback: Feedback`, `weights` (every catalog contrast), `activeContrastIds`, `productionPairs` / `productionOn`, `productionThreshold`, `maxLevel`, `levels` (pins), `weeklyMinutesTarget`. `PlanDefaults` holds the defaults and ranges. |
-| `LearnerState`, `ContrastState`, `WordState`, `PairState`, `Practice`, `DayTally` | `state.json`. `{}` parses to a fresh state. `exposures(word)`, `isTrained(word)`. `ContrastState` carries the ladder rung (`level`, `levelChanged`) and the Say-it tallies (`productionPairs`, `productionPoints`, `lastProductionPct`, `recentProductionPct`); `pairs` is the per-pair Say-it history; `practice` the consistency tally by UTC day. |
-| `SessionRecord`, `TrialRow`, `ProductionRow`, `WordResult`, `Summary`, `ContrastSummary`, `ProductionSummary`, `ProductionContrastSummary` | `sessions/<id>.json`. `levels` is the ladder snapshot at session start; `production` and `summary.production` are `null` when the Say-it block was off or skipped (the writer emits the `null`). |
+| `EffectivePlan` | resolved plan: `planSource` (`"coach"`/`"default"`/`"override"`, see `PlanSource`), `planWritten`, `note`, `trialsPerSession`, `untrainedRatio`, `voices`, `bands` (the **ceiling**, default all three), `feedback: Feedback`, `weights` (every catalog contrast), `activeContrastIds`, `maxLevel`, `levels` (pins), `weeklyMinutesTarget`. `PlanDefaults` holds the defaults and ranges. |
+| `LearnerState`, `ContrastState`, `WordState`, `Practice`, `DayTally` | `state.json`. `{}` parses to a fresh state. `exposures(word)`, `isTrained(word)`. `ContrastState` carries the ladder rung (`level`, `levelChanged`); `practice` the consistency tally by UTC day. |
+| `SessionRecord`, `TrialRow`, `Summary`, `ContrastSummary` | `sessions/<id>.json`. `levels` is the ladder snapshot at session start. Sessions carry the perception drill only. |
 
 `AppJson.json` (pretty, 2-space) for files in the folder; `AppJson.compact` for prefs/logs.
 Both: `ignoreUnknownKeys`, `isLenient`, `explicitNulls = false`, `encodeDefaults = true`.
@@ -45,17 +44,10 @@ for (i in 1..plan.trialsPerSession) {
     val t: PlannedTrial = scheduler.next(i)      // play t.target in t.voice; buttons t.leftWord / t.rightWord
     val row: TrialRow = scheduler.record(t, chosen, rtMs, replays)
 }
-val perceptionEnded = Instant.now()
-// Say it (plan.productionOn && Azure key && RECORD_AUDIO && network), see "Say it" below:
-val misses = scheduler.answeredTrials.filter { !it.correct }.map { it.pair }.toSet()
-val mods = scheduler.schedulable.associate { it.id to scheduler.sessionModifier(it.id) }
-val pairs = ProductionPlanner.pick(plan.productionPairs, catalog, plan, state, misses, Random, availableWords = merged.words, sessionModifiers = mods)
-val productionStarted = Instant.now()
-// per pair, per word: record → Wav.wrapPadded → AzureSpeech.assessPair → ProductionScorer.score → ProductionRow
 val record = RecordBuilder.build(started, Instant.now(), appVersion, catalog.version,
     plan.planSource, plan.planWritten, plan.voices, scheduler.answeredTrials, scheduler.untrainedShortfall,
-    levels = scheduler.levels, production = rowsOrNull, perceptionEnded = perceptionEnded, productionStarted = productionStarted)
-val newState = StateUpdater.apply(state, record, catalog, plan)   // the plan drives pins, max_level, productionOn
+    levels = scheduler.levels)
+val newState = StateUpdater.apply(state, record, catalog, plan)   // the plan drives pins and max_level
 ```
 
 - `SessionScheduler` throws `IllegalStateException("Nothing to schedule…")` from the constructor when no
@@ -67,21 +59,12 @@ val newState = StateUpdater.apply(state, record, catalog, plan)   // the plan dr
   of the answers (see the audio path below for how latency is handled anyway).
 - `LevelPolicy` (docs/ADAPTATION.md "The level ladder"): `bandsFor(level, ceiling)`, `poolBands(level, ceiling, contrast)`
   (widened to the first higher rung that holds a pair), `levelModifier(level)` (0.5 at 4), `currentLevel(id, state, plan)`
-  (pin, else stored level, capped at `max_level`), `nextLevel(current, recentUntrainedPct, recentProductionPct, productionOn, pinned, maxLevel)`
-  (promotion / demotion exactly at the documented thresholds, one step per session; production evidence counts only while Say it is on).
-- `ProductionScorer` (docs/CONTRACT.md "Say it"): `phonemeOfInterest(pair, word)` → `PhonemeTarget(symbol, position, phonemeCount)`
-  in Azure's en-US IPA (`azureSymbol`: iː→i, ɜː→ɝ, ɔː→ɔ, ɒ→ɑ, ɑː→ɑ); `pickPhonemeScore(azurePhonemes, target)` (symbol first,
-  nearest occurrence; position only when Azure's list is as long as Britfone's); `score(WordInput, intended, other, contrastId, catalog, threshold)`
-  → `WordResult` (three-signal majority vote, homophones via catalog IPA, phoneme signal skipped for `long-back` / `schwa`);
-  `points`, `pairPoints`, `normaliseRecognised`, `matches`.
-- `ProductionPlanner` (docs/ADAPTATION.md "Say it — what adapts"): `pick(n, catalog, plan, state, perceptionMisses, random, availableWords, sessionModifiers)`
-  — shares `w_eff × (1 + (1 − last_production_pct))`, the four within-contrast tiers, no repeats, a pair scored 2 not offered in the very
-  next session; `queue(contrast, …)` and `contrastShare(…)` expose the parts.
-- `RecordBuilder.build(…, levels, production, perceptionEnded, productionStarted)`: `production` null or empty → `"production": null`
-  and `summary.production: null`; `perception_duration_s = perceptionEnded − started`; `summary.production.duration_s = ended − productionStarted`.
-- `StateUpdater.apply(state, record, catalog, plan)`: per-contrast production stats (recent cap 5), `pairs`, `practice` (last 120 days,
-  `longest_streak`, `total_seconds`), level transitions stamped with `level_changed` (only contrasts with new evidence are re-judged;
-  pins and a lowered `max_level` apply to every stored contrast).
+  (pin, else stored level, capped at `max_level`), `nextLevel(current, recentUntrainedPct, pinned, maxLevel)`
+  (promotion / demotion exactly at the documented thresholds, one step per session).
+- `RecordBuilder.build(…, levels)`: the immutable session record and its summary.
+- `StateUpdater.apply(state, record, catalog, plan)`: per-contrast tallies (recent cap 5), `practice` (last 120 days,
+  `longest_streak`, `total_seconds`), level transitions stamped with `level_changed` (only contrasts probed this session are
+  re-judged; pins and a lowered `max_level` apply to every stored contrast).
 - `Ipa` (tokeniser + `highlight(ipaA, ipaB, diff)` for the coloured phoneme), `TimeUtil` (ISO timestamps, `20260911T070211Z` ids, UTC days).
 
 ## Storage — `storage`
@@ -130,16 +113,6 @@ val newState = StateUpdater.apply(state, record, catalog, plan)   // the plan dr
 - `AzureTts` + `RenderPlan` (pure, tested) + `PackRenderer`: rendering the pack on the phone with the
   learner's own key (Settings → Azure Speech); the key only ever goes into the
   `Ocp-Apim-Subscription-Key` header, never into a log or an exception.
-- `AzureSpeech(region, key)`: the Say-it calls, same conventions and retry / `Fatal` pattern as `AzureTts`
-  (3 attempts on 429 / 5xx / network with `RenderPlan.retryDelayMs`; 401 / 403 / 404 / unknown host are
-  `Fatal`; 20 s connect / 60 s read). `assess(wav, referenceText)` is the en-US pronunciation assessment
-  (`Pronunciation-Assessment` header = base64 of `assessmentJson`: HundredMark, Phoneme, Comprehensive,
-  `EnableMiscue: false`, `PhonemeAlphabet: IPA`), `recognise(wav)` the en-GB recognition without a header,
-  `assessPair(wav, intended, other)` runs the three concurrently (`async`) and `reachable()` is a cheap
-  DNS + TCP probe of the STT host used before the block starts. `parse(body)` (pure, tested on the live
-  response shape) → `Result(status, acc = NBest[0].AccuracyScore, phonemes = Words[0].Phonemes as
-  (Phoneme, AccuracyScore), recognised = NBest[0].Lexical normalised)`; `null` for an unreadable body
-  (retried), a non-`Success` status gives a `Result` with no scores.
 
 ## Audio path — `audio`
 
@@ -167,28 +140,6 @@ ClipPack.open(word, voice)            asset fd or file
 - Audio focus: `Player.play()` takes `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` (once, cheap when held)
   so other apps' music ducks; `Player.abandonFocus()` runs at session end / abandon, when the
   ViewModel is cleared and on the activity's `ON_STOP` (`LifecycleEventEffect` in `MainActivity`).
-
-### Recording (Say it)
-
-```
-Recorder.record(onLevel)              AudioRecord(VOICE_RECOGNITION, 16 kHz, mono, PCM16), one per recording,
-                                      20 ms frames read with READ_BLOCKING on Dispatchers.IO
-  → SpeechGate.feed(frame)            RMS gate: noise floor = the 20th percentile of the first 150 ms of
-                                      frames (not their mean: a word that starts with the recording must not
-                                      raise the floor over itself), capped at 500; speech = rms > 3 × floor
-                                      (≥ 250 ≈ −42 dBFS), held at 1.5 × floor; stop after 600 ms of quiet
-                                      following ≥ 200 ms of speech, or at 3 s
-  → Recorder.Recording               pcm + speechMs; hasSpeech = speechMs ≥ 150 ms ("no speech" otherwise)
-  → Recording.toWav()                 Wav.pad (400 ms of zeros each side) + Wav.wrap (44-byte RIFF header)
-  → Recording.toClip()                PreparedClip(pcm, 16000) → Player.prepare → play(): the learner hears himself
-```
-
-- `Recorder.stop()` ends the running recording at the next frame (tap-to-stop, activity `ON_STOP`).
-  Cancelling the coroutine lands within one frame; `stop()` + `release()` run in `finally` on every exit.
-  `hasPermission()` is checked before the `AudioRecord` is built; a missing permission, a busy
-  microphone or an unsupported format surface as `IOException`, never a crash.
-- `SpeechGate` and `Wav` are pure (tested on synthetic signals / header bytes); `Recorder` is the
-  only file that touches `android.media`.
 
 ### Latency design
 
@@ -220,81 +171,29 @@ at start" idea from the design brief is realised as a rolling one-trial look-ahe
   mirror, else adopt the folder's, else fresh → `plan.json` → `catalog-version.txt` →
   republish → status), `recompute()` builds `HomeUi` / `SettingsUi` from the effective plan, and
   the session loop (`startSession`, `onPlayTapped`, `onAnswer`, `onHearWord`, `onNext`,
-  `retryTrial`, `skipTrial`, `abandonSession`, then the Say-it block, then `finishSession`). Session end:
+  `retryTrial`, `skipTrial`, `abandonSession`, `finishSession`). Session end:
   `RecordBuilder` → `StateUpdater` → mirror state + session → folder state + session → republish →
   `SummaryUi`. `finishSession` runs under `NonCancellable` and a `finishing` flag: once started the
   files are written exactly once.
-- `Screen` is a five-value enum (`HOME, TRIAL, SAY_IT, SUMMARY, SETTINGS`); `MainActivity` switches on
-  it. Back on Trial asks to confirm and discards the session (nothing is written); Back on Say it asks
-  and then ends the block keeping the scored pairs (the session **is** written); back on
+- `Screen` is a four-value enum (`HOME, TRIAL, SUMMARY, SETTINGS`); `MainActivity` switches on it.
+  Back on Trial asks to confirm and discards the session (nothing is written); back on
   Summary/Settings goes Home.
 - Screens: `HomeScreen` (streak, sessions, this week's minutes against `weekly_minutes_target` with a
   bar, longest streak, coach note, per contrast: level `L2`, trend arrow of the last two untrained
-  results, last untrained %), `TrialScreen`, `SayItScreen`, `SummaryScreen` (overall, untrained, RT,
-  per contrast, Say-it points / max overall and per contrast, level changes "th moved to level 2",
-  why the block was skipped, file outcome), `SettingsScreen` (the plan section shows every lever
-  read-only, Say-it, ladder and weekly target included); `Theme.kt` is a fixed palette (no dynamic
+  results, last untrained %), `TrialScreen`, `SummaryScreen` (overall, untrained, RT,
+  per contrast, level changes "th moved to level 2", file outcome), `SettingsScreen` (the plan
+  section shows every lever read-only, ladder and weekly target included); `Theme.kt` is a fixed palette (no dynamic
   colour) with light/dark schemes following the system; `Common.kt` holds the IPA `AnnotatedString`
   builder (differing phoneme in tertiary colour + bold) and the pure helpers behind those screens
   (`trendOf`, `weekMinutes` / `weekStart`, `levelChanges`, `sayHint`), unit tested in `ui/CommonTest`.
 - All user-visible text is in `res/values/strings.xml`; the ViewModel passes codes
-  (`sayit:denied`, `republish:3`, `azure:ok:…`) that the screens map to strings.
-
-### Say it (`SAY_IT`)
-
-After the last trial's Next, `onNext()` stores `perceptionEnded` and calls `beginSayIt()`:
-
-1. Off when `plan.production_pairs == 0` or no Azure region + key is stored → `finishSession()`
-   straight away (`production: null`, no notice).
-2. `RECORD_AUDIO`: `Recorder.hasPermission()`; otherwise `micPrompt` (the pending request id, 0 =
-   none) is set, the activity's `RequestPermission` launcher shows the system prompt once per
-   request (`shouldPromptMic(request, launched)` against a `rememberSaveable` id, so a rotation does
-   not prompt twice and a restored activity above a fresh ViewModel still prompts) and answers with
-   `onMicPermission(granted)`, which clears the request; denial → `sayit:denied`, the session is
-   written without the block.
-3. `prepareSayIt()` (in `sayJob`, so "Skip the rest" can cancel it): `AzureSpeech.reachable()`
-   (no → `sayit:no-network`), then `ProductionPlanner.pick(...)` with this session's missed pair ids
-   and `m_session` per contrast, words with clips preferred (falls back to all words on a partial
-   pack, hear buttons disabled where a clip is missing); nothing to say → `sayit:nothing`.
-   `productionStarted` is taken here.
-4. Per pair (`showSayPair`): one random plan voice for both model clips (prefetched through the
-   `ClipCache`, so "Hear" is a `play()`), IPA highlights from `Ipa.highlight`. Per word (`onSayRecord`
-   → `recordAndScore` in `sayJob`): `Recorder.record` with the level meter → the recording is bound to
-   an `AudioTrack` for playback → no speech: one redo allowed, a second empty recording is scored
-   without an Azure call (`heard "?"`, `attempts 2`) → otherwise `AzureSpeech.assessPair`; an answer
-   where Azure heard nothing (`PairResult.heardNothing`: no `Success`, or accuracy 0 with no
-   recognised text — a breath or a chair passes the local gate) counts as a no-speech recording and
-   gets the same single redo →
-   `ProductionScorer.phonemeOfInterest` / `pickPhonemeScore` for `ph` and `ph_other` →
-   `ProductionScorer.score` → `SayWordPhase.Scored(result, point, hint)`. Both words scored →
-   `ProductionRow(i, contrast, pair, a, b, pairPoints, scheduler.levels[contrast], words)`.
-5. Next → next pair or `endSayIt()`; "Skip the rest" / Back → `endSayIt()` with `sayit:skipped`
-   when anything was left; an `IOException` from Azure after the retries (no network, `Fatal`) →
-   `sayit:azure:<message>` and `endSayIt()`. Every step of `recordAndScore` and `prepareSayIt`
-   carries the block's `AzureSpeech` instance as a token and does nothing at all once it is no
-   longer the current one, and `endSayIt` / `finishSession` take the session's `SessionScheduler`
-   and refuse a caller that is not the current session: a call cancelled with the block can still
-   come back as its own `IOException` (the three requests block on IO), and that failure must never
-   write the session the learner has started since. Only complete pairs go into the record; an empty list
-   becomes `production: null`.
-6. `finishSession()` passes `levels`, the rows, `perceptionEnded` and `productionStarted` to
-   `RecordBuilder.build` and the plan to `StateUpdater.apply`; the Summary gets the production
-   summary, the level changes (`levelChanges(before, after)`) and the notice.
-
-Recordings live only in memory (the tracks are released when the pair changes and at block end);
-nothing is written to the data folder or the cache. `onBackground()` stops a running recording
-(Android mutes the microphone of a background app anyway; the activity skips it on a configuration
-change, where `ON_STOP` only means a rotation); `abandonSession()` and `onCleared()`
-cancel `sayJob`, stop the recorder and release the tracks.
+  (`republish:3`, `azure:ok:…`) that the screens map to strings.
 
 ## Tests (`app/src/test`, JUnit 4, JVM only)
 
 Domain: `IpaTest`, `JsonTest`, `PlanTest`, `RecordBuilderTest`, `SchedulerTest`, `StateUpdaterTest`,
-`LevelPolicyTest`, `ProductionScorerTest`, `ProductionPlannerTest` (on the in-code `Fixture` catalog).
-App layers: `PcmTest` (silence trimming, windowed onset, downmix), `WavTest` (header bytes, sizes, padding),
-`SpeechGateTest` (the RMS gate on synthetic signals: stop 600 ms after a word, cap at 3 s, clicks are not
-speech, floor-relative thresholds, a word that starts with or inside the calibration window), `AsyncLruTest` (dedupe, eviction, failed-load retry, release),
-`ZipRulesTest` (entry validation, sha256 manifest), `RenderPlanTest`, `AzureSpeechTest` (parsing of the
-live response shape, "Azure heard nothing", the assessment header, endpoints), `FolderLayoutTest` (Documents vs
-Documents/MinimalPairs, display paths, session file names), `ClipIndexTest` (merged index),
-`ui/CommonTest` (trend, week minutes, level changes, Say-it hints).
+`LevelPolicyTest` (on the in-code `Fixture` catalog).
+App layers: `PcmTest` (silence trimming, windowed onset, downmix), `AsyncLruTest` (dedupe, eviction,
+failed-load retry, release), `ZipRulesTest` (entry validation, sha256 manifest), `RenderPlanTest`,
+`FolderLayoutTest` (Documents vs Documents/MinimalPairs, display paths, session file names),
+`ClipIndexTest` (merged index), `ui/CommonTest` (trend, week minutes, level changes).

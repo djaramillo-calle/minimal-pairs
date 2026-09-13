@@ -75,57 +75,6 @@ fun SummaryScreen(ui: SummaryUi, onHome: () -> Unit, onAgain: () -> Unit) {
                 }
             }
 
-            // Say it: points over the maximum, per contrast; or why the block did not run.
-            val production = s.production
-            val notice = ui.sayItNotice
-            if (production != null || notice != null) {
-                SectionCard(stringResource(R.string.summary_say_it)) {
-                    if (production != null) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                stringResource(R.string.summary_production_points, production.points, production.maxPoints),
-                                style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(pctText(production.pct), style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.padding(6.dp))
-                            Text(
-                                stringResource(R.string.summary_production_pairs, production.pairs),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        ui.production.forEach { r ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(r.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                                Text(stringResource(R.string.summary_production_row, r.points, r.pairs * 2), style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.padding(6.dp))
-                                Text(
-                                    stringResource(R.string.summary_production_pairs, r.pairs),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                    if (notice != null) {
-                        if (production != null) Spacer(Modifier.height(6.dp))
-                        Text(
-                            when {
-                                notice == "sayit:denied" -> stringResource(R.string.summary_sayit_denied)
-                                notice == "sayit:no-network" -> stringResource(R.string.summary_sayit_no_network)
-                                notice == "sayit:nothing" -> stringResource(R.string.summary_sayit_nothing)
-                                notice == "sayit:skipped" -> stringResource(R.string.summary_sayit_skipped)
-                                notice.startsWith("sayit:azure:") -> stringResource(R.string.summary_sayit_azure, notice.removePrefix("sayit:azure:"))
-                                else -> notice
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-                }
-            }
-
             // Rungs that moved when this session was applied (docs/ADAPTATION.md "The level ladder").
             if (ui.levelChanges.isNotEmpty()) {
                 SectionCard(stringResource(R.string.summary_levels)) {

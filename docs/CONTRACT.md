@@ -11,14 +11,20 @@ Documents/MinimalPairs/
 ├── plan.json               written by the COACH, read by the app (never written by the app)
 ├── state.json              written by the app after every session, read by the coach
 ├── catalog-version.txt     written by the app on every launch: the catalog the results refer to
-└── sessions/
-    ├── 20260911T070211Z.json   one file per completed session, append-only, never rewritten
+├── sessions/
+│   ├── 20260911T070211Z.json   one file per completed session, append-only, never rewritten
+│   └── ...
+├── sayit.zip               written by the COACH, read by the app (never written by the app)
+└── sayit/attempts/         written by the APP, read by the coach
+    ├── 20260913T180402Z_imperialist.m4a
+    ├── 20260913T180402Z_imperialist.json
     └── ...
 ```
 
 Rules that never change:
 
-- The app never writes `plan.json`. The coach never writes anything else.
+- The app never writes `plan.json` or `sayit.zip`. The coach writes only those
+  two and never anything else.
 - Session files are immutable once written. The app never edits, renames or
   deletes them. The coach may archive old ones on Drive; the app does not care:
   a session that reached the folder once is not put back when it later
@@ -77,8 +83,6 @@ Rules that never change:
 | `band` | list of `"high"`, `"mid"`, `"low"` | `["high", "mid", "low"]` | which frequency bands of words may ever be drilled (the ceiling; the level ladder picks within it) |
 | `feedback` | `"full"`, `"brief"`, `"minimal"` | `"full"` | `full`: correct/incorrect + both words with the differing sounds highlighted in IPA + tap either word to hear it; `brief`: correct/incorrect + IPA; `minimal`: tick/cross only |
 | `weights` | map contrast id → float 0–1 | catalog `default_weight` per contrast | `0` excludes a contrast. Weights are relative: trials are drawn in proportion. Unknown contrast ids are ignored. Contrasts missing from the map keep their catalog default |
-| `production_pairs` | int 0–30 | `8` | pairs in the **Say it** block that follows the perception trials; `0` switches production off |
-| `production_threshold` | int 0–100 | `60` | Azure accuracy a word needs to earn its point (see "Say it") |
 | `max_level` | int 1–4 | `4` | ceiling of the per-contrast level ladder the app runs (`docs/ADAPTATION.md`) |
 | `levels` | map contrast id → int 1–4 | `{}` | pinned levels: the app never moves a pinned contrast |
 | `weekly_minutes_target` | int 0–300 | `20` | consistency target shown on Home and used by the progress report |
@@ -114,23 +118,18 @@ instead). Small, one object. The coach reads it; it must never write it.
       "recent_untrained_pct": [0.6, 0.7, 0.75],
       "mean_rt_ms": 910,
       "words_trained": 34, "words_total": 96,
-      "level": 2, "level_changed": "2026-09-09T07:05:00Z",
-      "production_pairs": 24, "production_points": 31,
-      "last_production_pct": 0.75, "recent_production_pct": [0.5, 0.625, 0.75]
+      "level": 2, "level_changed": "2026-09-09T07:05:00Z"
     }
   },
   "words": {
     "ship": {"exposures": 4, "correct": 3, "last": "2026-09-11T07:03:10Z"},
     "sheep": {"exposures": 3, "correct": 3, "last": "2026-09-10T07:01:44Z"}
   },
-  "pairs": {
-    "th:think-sink": {"attempts": 3, "last_points": 2, "best": 2, "fails": 1, "last": "2026-09-11T07:04:50Z"}
-  },
   "practice": {
     "longest_streak": 9,
     "total_seconds": 5400,
     "days": {
-      "2026-09-11": {"sessions": 1, "seconds": 290, "perception_trials": 40, "production_pairs": 8}
+      "2026-09-11": {"sessions": 1, "seconds": 290, "perception_trials": 40}
     }
   }
 }
@@ -149,10 +148,7 @@ instead). Small, one object. The coach reads it; it must never write it.
 | `words_trained` / `words_total` | trainable words of this contrast with ≥1 exposure / in the catalog |
 | `words.<word>` | per-word exposure: `exposures` counts trials where the word was the **target**; `correct` those answered correctly; `last` the last such trial |
 | `contrasts.<id>.level` / `level_changed` | the contrast's rung on the level ladder (1–4, `docs/ADAPTATION.md`) and when it last moved |
-| `production_pairs` / `production_points` | lifetime Say-it pairs and points (2 per pair max) on this contrast |
-| `last_production_pct` / `recent_production_pct` | points ÷ max points of the most recent session with Say-it pairs on this contrast; last up-to-5, oldest first |
-| `pairs.<pair id>` | Say-it history per pair: `attempts`, `last_points` (0–2), `best`, `fails` (sessions with < 2 points), `last` |
-| `practice` | consistency: `longest_streak` (days), `total_seconds` of practice, and `days` keyed by UTC date for the last 120 days with sessions, seconds, perception trials and production pairs |
+| `practice` | consistency: `longest_streak` (days), `total_seconds` of practice, and `days` keyed by UTC date for the last 120 days with sessions, seconds and perception trials |
 
 A word is **trained** when `exposures ≥ 1` at the start of a session. A trial's
 `trained` flag is decided at session start, so a word heard for the first time
@@ -183,40 +179,27 @@ ISO form.
      "replays": 0, "trained": false, "band": "high", "position": "initial"}
   ],
   "levels": {"th": 2, "s/z": 1},
-  "production": [
-    {"i": 1, "contrast": "th", "pair": "th:think-sink", "a": "think", "b": "sink", "points": 1, "level": 2,
-     "words": {
-       "think": {"heard": "sink", "acc": 81, "acc_other": 96, "ph": 24, "ph_other": 99, "votes": "phoneme:other word:other recognition:other", "recognised": "sink", "ms": 1380, "attempts": 1},
-       "sink":  {"heard": "sink", "acc": 98, "acc_other": 82, "ph": 93, "ph_other": 44, "votes": "phoneme:intended word:intended recognition:intended", "recognised": "sink", "ms": 1100, "attempts": 1}
-     }}
-  ],
   "summary": {
     "trials": 1, "correct": 0, "pct": 0.0,
     "untrained_trials": 1, "untrained_correct": 0, "untrained_pct": 0.0,
-    "duration_s": 64, "perception_duration_s": 14, "mean_rt_ms": 1210,
+    "duration_s": 64, "mean_rt_ms": 1210,
     "untrained_shortfall": 0,
     "contrasts": {
       "th": {"trials": 1, "correct": 0, "untrained_trials": 1, "untrained_correct": 0, "mean_rt_ms": 1210}
-    },
-    "production": {
-      "pairs": 1, "points": 1, "max_points": 2, "pct": 0.5, "duration_s": 46,
-      "contrasts": {"th": {"pairs": 1, "points": 1}}
     }
   }
 }
 ```
 
-The example is deliberately one trial and one Say-it pair long, and nothing in
-it is abbreviated: every worked example in this document is checked with
+The example is deliberately one trial long, and nothing in it is abbreviated:
+every worked example in this document is checked with
 `scripts/validate-contract.py`, and the summary of a real session counts all
-`trials_per_session` trial rows and all `production_pairs` production rows the
-same way (`summary.duration_s` is `ended` − `started`, and
-`perception_duration_s` plus `summary.production.duration_s` never exceed it).
+`trials_per_session` trial rows the same way (`summary.duration_s` is
+`ended` − `started`).
 
-`levels` is the ladder snapshot at session start. `production` and
-`summary.production` are `null` when the block was off (`production_pairs: 0`)
-or skipped (no microphone permission, no Azure key, no network); a block the
-learner abandoned half-way keeps the pairs that were scored.
+`levels` is the ladder snapshot at session start. Sessions carry the perception
+drill only: **Say it** is a separate mode with its own files (below) and never
+appears here.
 
 Trial row fields:
 
@@ -236,49 +219,6 @@ Trial row fields:
 | `band` | frequency band of the target (`high`, `mid`, `low`) |
 | `position` | where the differing sound sits: `initial`, `medial`, `final` |
 
-## Say it — production rows
-
-After the perception trials the app shows up to `production_pairs` pairs. For
-each pair the learner records each word separately (up to 3 s; the app plays
-the model voice on request and plays the recording back). The recording is
-padded with 400 ms of silence on both sides (Azure drops abrupt clips) and
-assessed three times with the learner's Azure key. This is the coach's rule,
-measured on synthesized clips of every contrast before it was fixed: a single
-signal is not enough (reference-text assessment alone scored "ship" against
-"sheep" at 100; plain recognition of an isolated word misses homophones and
-guesses on vowels), but three signals with a majority vote are.
-
-| Signal | Call | Vote for the intended word when… |
-|---|---|---|
-| phoneme | en-US pronunciation assessment, IPA phonemes, reference = intended word, and again with reference = the other word | the differing phoneme scores ≥ 15 points higher under the intended reference than the other word's differing phoneme under the other reference (`ph` vs `ph_other`); the reverse votes for the other word. **Insertion pairs** (`-ed`, `h`: walk/walked, eat/heat) have the phoneme on one side only: it is scored under the reference that contains it and votes for that word at ≥ 60, for the other word below 40, and not at all in between |
-| word | the same two calls, word-level accuracy | `acc ≥ acc_other + 10`; reverse votes for the other word |
-| recognition | en-GB recognition without reference text | the recognised word is the intended word, or a catalog word with the same IPA (homophones such as court/caught); the other word votes for the other |
-
-`heard` is the majority of the votes cast (a signal with no clear winner does
-not vote); a tie or no vote gives `"?"`. For `long-back` and `schwa` the
-phoneme signal is skipped (en-US models have no ɒ or ɑː/æ split of the
-British kind) and the other two decide. A word earns **1 point** when `heard`
-is the intended word **and** `acc ≥ production_threshold`. A pair scores 0,
-1 or 2.
-
-Row fields under `words.<word>`:
-
-| Field | Meaning |
-|---|---|
-| `heard` | the intended word, the other word, or `"?"` |
-| `acc` / `acc_other` | word accuracy (0–100) under the intended / the other reference |
-| `ph` / `ph_other` | accuracy of the differing phoneme under each reference; `null` when Azure returned no phonemes or the contrast skips the signal. On an insertion pair (`-ed`, `h`) only one of the two references contains the phoneme: its score goes in `ph` when the intended word carries it (`walked` in walk/walked) and in `ph_other` when the other word does, and the other field is `null` |
-| `votes` | the three votes, always in the order `phoneme`, `word`, `recognition`, each `intended`, `other` or `none`, e.g. `"phoneme:intended word:intended recognition:other"`. `none` is a signal that did not vote: no clear winner by the rule above, no phonemes returned, a one-sided phoneme (insertion pair) scoring between 40 and 60, a recognition that matched neither word, or the phoneme signal being skipped for `long-back` and `schwa` (there it is always `phoneme:none`). On a substitution pair the phoneme signal needs both `ph` and `ph_other`; on an insertion pair it votes on the single score that exists |
-| `recognised` | the en-GB recognition text, lower-cased, punctuation stripped; `null` when Azure recognised nothing (then the recognition vote is `none`) |
-| `ms` | recording length before padding |
-| `attempts` | recordings made for this word (a recording with no speech may be redone once; a scored one is never redone) |
-
-Recordings are not kept in the folder (they stay in the app's cache until the
-next session). The mapping from the catalog's Britfone phonemes to Azure's
-en-US IPA is fixed in the app (`iː→i`, `ɜː→ɝ`, `ɔː→ɔ`, `ɒ→ɑ`, `ɑː→ɑ`, the
-rest identical); when the symbol is not found the phoneme is located by its
-position in the word.
-
 `summary.untrained_pct` is `null` when the session had no untrained trial
 (`untrained_ratio: 0`, or every eligible word already trained); it is never
 `0.0` in that case.
@@ -296,6 +236,116 @@ week. With the default `band` (all three) it takes a long run of sessions and
 happens first on the small contrasts (j/y has 13 trainable words, b/v 56), so
 it is the normal end of a contrast's lexicon, not an error.
 
+## Say it — `sayit.zip` (coach → app) and `sayit/attempts/` (app → coach)
+
+**Say it** is the production half of the pronunciation loop and is independent
+of the perception drill: it has its own files and touches neither `plan.json`,
+`state.json` nor `sessions/`. The coach (`scripts/sayit.py` in the coaching
+repository) flags the words the learner mispronounced in his daily reads,
+renders a model clip of each word's own sentence, and packs everything into one
+zip. The app plays the model, records the learner reading the same sentence and
+writes the recording back. **The app never scores anything and uses no network
+for this**: the Azure key stays in the cloud, and the app only displays results
+it is given.
+
+The unit is always the word **in its sentence**, never the word alone: the
+failures being drilled are connected-speech failures, and an isolated word is a
+different motor task.
+
+### `sayit.zip` — the whole coach → app payload
+
+One file, because the Drive service account that syncs has no storage quota and
+can only PATCH files that already exist: the owner created an empty `sayit.zip`
+once and the coach overwrites it in place forever. Entries, all at the zip root:
+
+```
+words.json
+results.json
+clips/<id>.ogg      an en-GB Azure neural voice reading that word's `sentence`
+                    (Ogg/Opus, ~60 KB)
+```
+
+The app **reads** `sayit.zip` and never writes it. It is treated as untrusted
+input: an entry with an absolute path, a `..` segment, a backslash, a colon, a
+path deeper than `clips/<name>.ogg`, or one over the size caps is refused, and
+nothing is written outside the app's own private directory.
+
+`words.json`:
+
+```json
+{"version": 1, "written": "2026-09-13T18:06:00Z", "per_session": 5,
+ "words": [{"id": "imperialist", "word": "imperialist",
+            "sentence": "This is not to deny that the unexpected revival of imperialist policies and methods takes place under vastly changed conditions.",
+            "clip": "clips/imperialist.ogg", "ipa": "",
+            "classes": ["i/ii", "s/z", "schwa"], "flagged_on": 3, "read_on": 2,
+            "miss_rate": 1.5, "added": "2026-09-13"}]}
+```
+
+| Key | Meaning |
+|---|---|
+| `per_session` | how many words to show in one sitting |
+| `id` | the word's id; also the clip name and the `<id>` half of an attempt's file name |
+| `word` | the flagged word, highlighted inside `sentence` |
+| `sentence` | the sentence he actually read, and the only thing the cloud scores against |
+| `clip` | `clips/<id>.ogg`, or `""` when no audio could be rendered — the app then shows the sentence text-only and says the model is unavailable; it never offers a dead path |
+| `ipa` | may be empty; shown under the sentence when present |
+| `classes` | the coach's confusion classes; may be empty |
+| `flagged_on` / `read_on` / `miss_rate` | the coach's evidence; `miss_rate` orders the session |
+| `added` | UTC date the word entered the set |
+
+`results.json` — what the cloud scored, written back inside the same zip:
+
+```json
+{"version": 1, "updated": "2026-09-13T19:12:00Z", "words": {"imperialist": {
+   "attempts": [{"at": "2026-09-13T18:04:02Z", "file": "20260913T180402Z_imperialist.json",
+                 "accuracy": 71.0, "fluency": 64.0, "pron": 68.0, "flagged": ["imperialist"]}],
+   "best": 71.0, "last": 71.0, "status": "active"}}}
+```
+
+`file` is the **sidecar's** file name, which is how the coach records that an
+attempt has been scored. `accuracy`, `fluency`, `pron`, `best` and `last` may
+be `null`.
+
+| `status` | Meaning | What the app does |
+|---|---|---|
+| `active` | still being practised | shows it |
+| `retired` | two attempts at accuracy ≥ 80 | never shows it again |
+| `tutor` | still failing after three weeks | shows it greyed, with a line saying a human should hear this one |
+
+A word with no entry in `results.json` is `active`. The app shows the `active`
+words only, worst `miss_rate` first, `per_session` of them.
+
+### `sayit/attempts/<ts>_<id>.m4a` and `.json` — app → coach
+
+One recording of the whole sentence and one sidecar per attempt. `<ts>` is the
+basic UTC form `20260913T180402Z` (no colons: Android external storage and Drive
+reject them) and `<id>` is the word id. **The two file names must agree
+exactly**: the coach matches audio to sidecar by identical stem, and a sidecar
+with no audio beside it is skipped. The audio is written first, so a half-synced
+attempt is never scored against a missing recording.
+
+```json
+{"version": 1, "id": "imperialist", "word": "imperialist",
+ "sentence": "This is not to deny that the unexpected revival of imperialist policies and methods takes place under vastly changed conditions.",
+ "started": "2026-09-13T18:04:02Z", "duration_s": 4.2,
+ "app_version": "0.2.0", "clip_played": 2}
+```
+
+`sentence` is **copied verbatim** from `words.json`. The cloud scores the audio
+against that string, so any drift — a trimmed space, a normalised quote —
+silently ruins the score.
+
+`clip_played` counts how many times the learner played the model before the
+attempt was finished. Recording is capped at 20 s.
+
+### Housekeeping
+
+The app deletes local attempt **audio** older than 30 days whose sidecar name
+already appears in `results.json` — the attempt has been scored, so the bytes
+are no longer needed on the phone or in Drive. The sidecars stay: they are tiny
+and they are the coach's record that the attempt was already handled. Settings
+says so.
+
 ## `catalog-version.txt`
 
 One line, the catalog version string bundled in the installed app
@@ -310,8 +360,8 @@ as long as both words and the contrast stay the same.
   plus recent session files into `plan.json`. The weight of a contrast is
 
   ```
-  score  = ledger count + 2 × incorrect untrained trials + 3 × Say-it pairs
-           scored below 2          (the trials and pairs of the last --days days, default 14)
+  score  = ledger count + 2 × incorrect untrained trials
+                                   (the trials of the last --days days, default 14)
   weight = 0.15 + 0.85 × score / the largest score          rounded to 2 decimals
   ```
 
@@ -336,14 +386,13 @@ as long as both words and the contrast stay the same.
 - `scripts/progress-report.py <folder> [--weeks 6] [--out report.md] [--plan-out plan.json]`
   is the coach's analysis: consistency (days and minutes per week, streak,
   longest streak, against `weekly_minutes_target`), per contrast the level,
-  the untrained-perception and production trends over the last weeks, and
+  the untrained-perception trend over the last weeks, and
   flags — `regression` (a drop of ≥ 15 points against the previous two
   sessions), `plateau` (three *consecutive* weeks with probes, within ±5
   points of each other below 90 % at the same level; at most one week without
   a probe may sit between them, and three flat probes spread wider than that
-  are reported as a consistency problem instead of a plateau), `mastered`
-  (≥ 95 % untrained and ≥ 85 % production for three sessions), `untested` (no
-  production yet) — with the plan changes it recommends; `--plan-out` writes
+  are reported as a consistency problem instead of a plateau) and `mastered`
+  (three probes ≥ 95 % untrained) — with the plan changes it recommends; `--plan-out` writes
   them as a `plan.json`. That plan starts from the current `plan.json`'s
   levers **and weights**: a weight moves only where this report's evidence
   justifies it (× 1.5 on regression, × 1.25 on a plateau, to the floor with
@@ -351,8 +400,7 @@ as long as both words and the contrast stay the same.
   not name is filled in with `plan-from-ledger.py`'s score rule. With
   `--ledger` the coach's counts are the fresh evidence and every weight comes
   from that rule instead. It also switches `feedback` to `brief` on a plateau
-  at level ≥ 3, adds 4 `production_pairs` (max 30) when production lags
-  perception by ≥ 20 points, and widens `band` to `high,mid,low` when the
+  at level ≥ 3 and widens `band` to `high,mid,low` when the
   recent sessions report `untrained_shortfall` on ≥ 10 % of their trials —
   naming the widening among the recommended changes. It reads the same folder
   the app writes, so the cloud coach can run it straight from Drive.

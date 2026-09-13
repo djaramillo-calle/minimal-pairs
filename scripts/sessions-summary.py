@@ -11,7 +11,7 @@ contrast, and prints one TSV row per (week, contrast), sorted by week then
 contrast, with the header
 
   week  contrast  untrained_pct  untrained_trials  trials  correct_pct  mean_rt_ms
-  sessions  week_shortfall  production_pct  production_pairs  level  days_practised  minutes
+  sessions  week_shortfall  level  days_practised  minutes
 
 untrained_pct is the percent correct on untrained trials (the honest probe),
 empty when there were no untrained trials. correct_pct is the percent correct
@@ -21,9 +21,7 @@ week_shortfall is the sum of summary.untrained_shortfall over every session of
 the week (trials that were meant to be untrained but had no untrained word left
 in the plan's band); it is session-level, so it repeats on each contrast row of
 the week. When it grows, widen plan.band or lower untrained_ratio
-(docs/CONTRACT.md). production_pct is the Say-it score of the contrast that
-week (points / 2 per pair, percent; empty without pairs) and production_pairs
-the pairs it rests on. level is the contrast's rung on the level ladder as
+(docs/CONTRACT.md). level is the contrast's rung on the level ladder as
 last seen that week (the "levels" snapshot of the week's latest session that
 carries it; empty for files from before the ladder). days_practised and
 minutes are week-level like week_shortfall: distinct UTC days with a session
@@ -43,7 +41,7 @@ import tempfile
 
 HEADER = ["week", "contrast", "untrained_pct", "untrained_trials", "trials",
           "correct_pct", "mean_rt_ms", "sessions", "week_shortfall",
-          "production_pct", "production_pairs", "level", "days_practised", "minutes"]
+          "level", "days_practised", "minutes"]
 
 
 def is_int(x):
@@ -102,7 +100,7 @@ def aggregate(sessions):
         return groups.setdefault((week, c), {
             "trials": 0, "correct": 0, "untrained_trials": 0,
             "untrained_correct": 0, "rt_sum": 0, "rt_n": 0, "sessions": set(),
-            "prod_pairs": 0, "prod_points": 0, "level": None, "level_at": None,
+            "level": None, "level_at": None,
         })
 
     for name, s in sessions:
@@ -138,16 +136,6 @@ def aggregate(sessions):
                 g["rt_sum"] += rt
                 g["rt_n"] += 1
             g["sessions"].add(name)
-        prod = s.get("production")
-        if isinstance(prod, list):
-            for row in prod:
-                if not isinstance(row, dict) or not isinstance(row.get("contrast"), str):
-                    continue
-                g = group(week, row["contrast"])
-                pts = row.get("points")
-                g["prod_pairs"] += 1
-                g["prod_points"] += pts if is_int(pts) and 0 <= pts <= 2 else 0
-                g["sessions"].add(name)
         levels = s.get("levels")
         if isinstance(levels, dict):
             for c, lv in levels.items():
@@ -184,8 +172,6 @@ def rows(groups, weeks=None):
             "" if g["rt_n"] == 0 else str(int(round(g["rt_sum"] / g["rt_n"]))),
             str(len(g["sessions"])),
             str(g.get("week_shortfall", 0)),
-            pct(g["prod_points"], 2 * g["prod_pairs"]),
-            str(g["prod_pairs"]),
             "" if g["level"] is None else str(g["level"]),
             str(g.get("days_practised", 0)),
             "%.1f" % g.get("minutes", 0.0),
@@ -202,7 +188,7 @@ def write_tsv(table, fh):
 # ----------------------------------------------------------------- selftest
 
 def _session(sid, started, rows_, voice="en-GB-SoniaNeural", shortfall=0, duration=60,
-             levels=None, production=None):
+             levels=None):
     trials = []
     for i, (contrast, trained, correct, rt) in enumerate(rows_, 1):
         trials.append({
@@ -217,9 +203,6 @@ def _session(sid, started, rows_, voice="en-GB-SoniaNeural", shortfall=0, durati
          "summary": {"untrained_shortfall": shortfall, "duration_s": duration}}
     if levels is not None:
         s["levels"] = levels
-        s["production"] = None if production is None else [
-            {"i": i, "contrast": c, "pair": c + ":a-b", "a": "a", "b": "b", "points": pts,
-             "level": levels.get(c, 1), "words": {}} for i, (c, pts) in enumerate(production, 1)]
     return s
 
 
@@ -227,25 +210,24 @@ def selftest():
     with tempfile.TemporaryDirectory() as tmp:
         data = [
             # 2026-W37 (Mon 7 Sep .. Sun 13 Sep); shortfall 3 + 1 for the week; an old
-            # file without levels/production, then one with Say-it pairs (th level 1)
+            # file without levels, then one that carries the snapshot (th level 1)
             ("20260908T070000Z", "2026-09-08T07:00:00Z",
              [("th", False, True, 800), ("th", False, False, 1200), ("th", True, True, 700),
-              ("s/z", True, True, 900)], 3, 90, None, None),
+              ("s/z", True, True, 900)], 3, 90, None),
             ("20260913T235959Z", "2026-09-13T23:59:59Z",
              [("th", False, True, 1000), ("s/z", True, False, 1100)], 1, 45,
-             {"th": 1, "s/z": 1, "b/v": 1}, [("th", 2), ("th", 1), ("s/z", 0)]),
+             {"th": 1, "s/z": 1, "b/v": 1}),
             # 2026-W38 starts on Monday 14 Sep 00:00 UTC: two sessions on one day, the
-            # later one shows th at level 2; b/v has pairs but no level entry... and
-            # a contrast (i/ii) with Say-it pairs but no trials still gets a row
+            # later one shows th at level 2
             ("20260914T000000Z", "2026-09-14T00:00:00Z",
              [("th", False, False, 1500), ("b/v", False, True, 600), ("b/v", True, True, 650)], 0, 120,
-             {"th": 1, "b/v": 1}, None),
+             {"th": 1, "b/v": 1}),
             ("20260914T200000Z", "2026-09-14T20:00:00Z",
-             [("th", True, True, 900)], 0, 30, {"th": 2}, [("i/ii", 2), ("i/ii", 2)]),
+             [("th", True, True, 900)], 0, 30, {"th": 2}),
         ]
-        for sid, started, r, sf, dur, lv, prod in data:
+        for sid, started, r, sf, dur, lv in data:
             with open(os.path.join(tmp, sid + ".json"), "w", encoding="utf-8") as f:
-                json.dump(_session(sid, started, r, shortfall=sf, duration=dur, levels=lv, production=prod), f)
+                json.dump(_session(sid, started, r, shortfall=sf, duration=dur, levels=lv), f)
         with open(os.path.join(tmp, "broken.json"), "w") as f:
             f.write("not json at all")
         with open(os.path.join(tmp, "notes.txt"), "w") as f:
@@ -255,31 +237,28 @@ def selftest():
         table = rows(groups)
         by = {(r[0], r[1]): r for r in table}
         assert [(r[0], r[1]) for r in table] == [
-            ("2026-W37", "s/z"), ("2026-W37", "th"), ("2026-W38", "b/v"), ("2026-W38", "i/ii"),
+            ("2026-W37", "s/z"), ("2026-W37", "th"), ("2026-W38", "b/v"),
             ("2026-W38", "th")], table
-        # W37 th: 4 trials, 3 correct; untrained 3 trials 2 correct; rt (800+1200+700+1000)/4=925; 2 sessions;
-        # Say it 3 of 4 points on 2 pairs, level 1 (last seen); 2 days, (90+45)/60 = 2.25 -> "2.2"
+        # W37 th: 4 trials, 3 correct; untrained 3 trials 2 correct; rt (800+1200+700+1000)/4=925;
+        # 2 sessions; level 1 (last seen); 2 days, (90+45)/60 = 2.25 -> "2.2"
         assert by[("2026-W37", "th")] == ["2026-W37", "th", "66.7", "3", "4", "75.0", "925", "2", "4",
-                                          "75.0", "2", "1", "2", "2.2"], by
+                                          "1", "2", "2.2"], by
         # W37 s/z: no untrained trials -> empty untrained_pct; week_shortfall is week-level (3 + 1)
         assert by[("2026-W37", "s/z")] == ["2026-W37", "s/z", "", "0", "2", "50.0", "1000", "2", "4",
-                                           "0.0", "1", "1", "2", "2.2"], by
+                                           "1", "2", "2.2"], by
         # W38 th: level 2 from the later session of the day; 3 trials over 2 sessions; one day, 2.5 min
         assert by[("2026-W38", "th")] == ["2026-W38", "th", "0.0", "1", "2", "50.0", "1200", "2", "0",
-                                          "", "0", "2", "1", "2.5"], by
+                                          "2", "1", "2.5"], by
         assert by[("2026-W38", "b/v")] == ["2026-W38", "b/v", "100.0", "1", "2", "100.0", "625", "1", "0",
-                                           "", "0", "1", "1", "2.5"], by
-        # a contrast with Say-it pairs only: no trials, no level (not in that session's snapshot)
-        assert by[("2026-W38", "i/ii")] == ["2026-W38", "i/ii", "", "0", "0", "", "", "1", "0",
-                                            "100.0", "2", "", "1", "2.5"], by
+                                           "1", "1", "2.5"], by
         # every row of a week agrees on the week-level columns
         for week in ("2026-W37", "2026-W38"):
-            wk = {tuple(r[8:9] + r[12:14]) for r in table if r[0] == week}
+            wk = {tuple(r[8:9] + r[10:12]) for r in table if r[0] == week}
             assert len(wk) == 1, wk
 
         # --weeks 1 keeps only the most recent week
         last = rows(groups, weeks=1)
-        assert {r[0] for r in last} == {"2026-W38"} and len(last) == 3
+        assert {r[0] for r in last} == {"2026-W38"} and len(last) == 2
         # TSV output shape
         out = os.path.join(tmp, "out.tsv")
         with open(out, "w", encoding="utf-8") as f:

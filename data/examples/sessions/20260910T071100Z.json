@@ -1,84 +1,81 @@
 {
-  "version": 1,
-  "id": "20260910T071100Z",
-  "started": "2026-09-10T07:11:00Z",
-  "ended": "2026-09-10T07:11:41Z",
-  "app_version": "0.1.0",
-  "catalog_version": "2026-09-11.2",
-  "plan_source": "default",
-  "plan_written": null,
-  "voices": [
-    "en-GB-SoniaNeural",
-    "en-GB-LibbyNeural",
-    "en-GB-HollieNeural",
-    "en-GB-RyanNeural",
-    "en-GB-ThomasNeural",
-    "en-GB-AlfieNeural"
-  ],
-  "trials": [
-    {
-      "i": 1,
-      "contrast": "th",
-      "pair": "th:thought-sort",
-      "target": "sort",
-      "other": "thought",
-      "chosen": "sort",
-      "correct": true,
-      "voice": "en-GB-SoniaNeural",
-      "rt_ms": 950,
-      "replays": 0,
-      "trained": true,
-      "band": "high",
-      "position": "initial"
-    },
-    {
-      "i": 2,
-      "contrast": "s/z",
-      "pair": "s/z:once-ones",
-      "target": "once",
-      "other": "ones",
-      "chosen": "ones",
-      "correct": false,
-      "voice": "en-GB-RyanNeural",
-      "rt_ms": 1300,
-      "replays": 1,
-      "trained": true,
-      "band": "high",
-      "position": "final"
-    }
-  ],
-  "levels": {
-    "th": 1,
-    "s/z": 1
+ "version": 1,
+ "id": "20260910T071100Z",
+ "started": "2026-09-10T07:11:00Z",
+ "ended": "2026-09-10T07:11:41Z",
+ "app_version": "0.1.0",
+ "catalog_version": "2026-09-11.2",
+ "plan_source": "default",
+ "plan_written": null,
+ "voices": [
+  "en-GB-SoniaNeural",
+  "en-GB-LibbyNeural",
+  "en-GB-HollieNeural",
+  "en-GB-RyanNeural",
+  "en-GB-ThomasNeural",
+  "en-GB-AlfieNeural"
+ ],
+ "trials": [
+  {
+   "i": 1,
+   "contrast": "th",
+   "pair": "th:thought-sort",
+   "target": "sort",
+   "other": "thought",
+   "chosen": "sort",
+   "correct": true,
+   "voice": "en-GB-SoniaNeural",
+   "rt_ms": 950,
+   "replays": 0,
+   "trained": true,
+   "band": "high",
+   "position": "initial"
   },
-  "production": null,
-  "summary": {
-    "trials": 2,
+  {
+   "i": 2,
+   "contrast": "s/z",
+   "pair": "s/z:once-ones",
+   "target": "once",
+   "other": "ones",
+   "chosen": "ones",
+   "correct": false,
+   "voice": "en-GB-RyanNeural",
+   "rt_ms": 1300,
+   "replays": 1,
+   "trained": true,
+   "band": "high",
+   "position": "final"
+  }
+ ],
+ "levels": {
+  "th": 1,
+  "s/z": 1
+ },
+ "summary": {
+  "trials": 2,
+  "correct": 1,
+  "pct": 0.5,
+  "untrained_trials": 0,
+  "untrained_correct": 0,
+  "untrained_pct": null,
+  "duration_s": 41,
+  "mean_rt_ms": 1125,
+  "untrained_shortfall": 2,
+  "contrasts": {
+   "th": {
+    "trials": 1,
     "correct": 1,
-    "pct": 0.5,
     "untrained_trials": 0,
     "untrained_correct": 0,
-    "untrained_pct": null,
-    "duration_s": 41,
-    "perception_duration_s": 39,
-    "mean_rt_ms": 1125,
-    "untrained_shortfall": 2,
-    "contrasts": {
-      "th": {
-        "trials": 1,
-        "correct": 1,
-        "untrained_trials": 0,
-        "untrained_correct": 0,
-        "mean_rt_ms": 950
-      },
-      "s/z": {
-        "trials": 1,
-        "correct": 0,
-        "untrained_trials": 0,
-        "untrained_correct": 0,
-        "mean_rt_ms": 1300
-      }
-    },
-    "production": null
+    "mean_rt_ms": 950
+   },
+   "s/z": {
+    "trials": 1,
+    "correct": 0,
+    "untrained_trials": 0,
+    "untrained_correct": 0,
+    "mean_rt_ms": 1300
+   }
   }
+ }
 }

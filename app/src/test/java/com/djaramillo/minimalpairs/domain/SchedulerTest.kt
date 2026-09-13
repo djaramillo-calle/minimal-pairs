@@ -152,7 +152,7 @@ class SchedulerTest {
         // b/v at level 1 has one high/high pair (boat/vote) — the shape that used to make the real
         // b/v and j/y unpromotable: the probe dried up, recent_untrained_pct froze, the rung stuck.
         val plan = effectivePlan(
-            Plan(weights = mapOf("b/v" to 1.0, "th" to 0.0, "s/z" to 0.0, "i/ii" to 0.0), productionPairs = 0, trialsPerSession = 10),
+            Plan(weights = mapOf("b/v" to 1.0, "th" to 0.0, "s/z" to 0.0, "i/ii" to 0.0), trialsPerSession = 10),
             catalog, pack,
         )
         var state = LearnerState()

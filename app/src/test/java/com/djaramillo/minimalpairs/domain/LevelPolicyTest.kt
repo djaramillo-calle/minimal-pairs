@@ -58,9 +58,9 @@ class LevelPolicyTest {
     }
 
     private fun next(
-        current: Int, u: List<Double>, p: List<Double> = emptyList(), productionOn: Boolean = false,
-        pinned: Int? = null, maxLevel: Int = 4, untrainedEvidence: Boolean = true, productionEvidence: Boolean = true,
-    ) = LevelPolicy.nextLevel(current, u, p, productionOn, pinned, maxLevel, untrainedEvidence, productionEvidence)
+        current: Int, u: List<Double>,
+        pinned: Int? = null, maxLevel: Int = 4, untrainedEvidence: Boolean = true,
+    ) = LevelPolicy.nextLevel(current, u, pinned, maxLevel, untrainedEvidence)
 
     @Test
     fun promotionAtExactThresholds() {
@@ -70,33 +70,14 @@ class LevelPolicyTest {
         assertEquals(1, next(1, listOf(0.9, 0.9, 0.8999)))
         assertEquals(1, next(1, listOf(0.9, 0.9)))                      // two sessions are not enough
         assertEquals(1, next(1, emptyList()))
-        // Say it on: the last two production results must both reach 75 %
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), listOf(0.75, 0.75), productionOn = true))
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), listOf(0.1, 0.75, 1.0), productionOn = true))
-        assertEquals(1, next(1, listOf(0.9, 0.9, 0.9), listOf(0.74, 0.75), productionOn = true))
-        // fewer than two production results are no evidence: perception alone promotes (a Say-it
-        // block that never runs — no key, no microphone, no network — cannot freeze the ladder)
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), listOf(0.75), productionOn = true))
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), listOf(0.1), productionOn = true))
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), emptyList(), productionOn = true))
-        // Say it off: production history is ignored
-        assertEquals(2, next(1, listOf(0.9, 0.9, 0.9), listOf(0.0, 0.0), productionOn = false))
     }
 
     @Test
     fun onlyTheEvidenceThisSessionAddedMovesTheLevel() {
-        // no untrained trial on the contrast this session: the perception lists are not re-judged
+        // no untrained trial on the contrast this session: the perception list is not re-judged
         assertEquals(1, next(1, listOf(1.0, 1.0, 1.0), untrainedEvidence = false))
         assertEquals(3, next(3, listOf(0.1, 0.1), untrainedEvidence = false))
-        assertEquals(3, next(3, listOf(0.1, 0.1), listOf(1.0, 1.0), productionOn = true, untrainedEvidence = false))
-        // a production-only session neither promotes nor demotes on the frozen perception evidence
-        assertEquals(3, next(3, listOf(0.9, 0.5, 0.5), listOf(1.0, 1.0), productionOn = true, untrainedEvidence = false))
-        assertEquals(1, next(1, listOf(1.0, 1.0, 1.0), listOf(1.0, 1.0), productionOn = true, untrainedEvidence = false))
-        // … but its own production results still guard, and stop guarding once the block stops running
-        assertEquals(2, next(3, listOf(0.9, 0.9), listOf(0.1, 0.1), productionOn = true, untrainedEvidence = false))
-        assertEquals(3, next(3, listOf(0.9, 0.9), listOf(0.1, 0.1), productionOn = true, untrainedEvidence = false, productionEvidence = false))
-        // perception evidence with stale bad production results: the promotion gate still applies
-        assertEquals(3, next(3, listOf(1.0, 1.0, 1.0), listOf(0.5, 0.5), productionOn = true, productionEvidence = false))
+        assertEquals(3, next(3, listOf(0.9, 0.5, 0.5), untrainedEvidence = false))
     }
 
     @Test
@@ -121,16 +102,8 @@ class LevelPolicyTest {
         assertEquals(3, next(3, listOf(0.59, 0.6)))
         assertEquals(3, next(3, listOf(0.59)))                          // one bad session is not a regression
         assertEquals(1, next(1, listOf(0.0, 0.0)))                      // never below 1
-        // production guard, even while perception is fine
-        assertEquals(2, next(3, listOf(0.95, 0.95, 0.95), listOf(0.39, 0.39), productionOn = true))
-        // Say it off: stale production results neither block nor demote
-        assertEquals(4, next(3, listOf(0.95, 0.95, 0.95), listOf(0.39, 0.39), productionOn = false))
-        assertEquals(3, next(3, listOf(0.7, 0.7), listOf(0.39, 0.39), productionOn = false))
-        assertEquals(4, next(3, listOf(0.95, 0.95, 0.95), listOf(0.4, 0.39), productionOn = false))
-        assertEquals(3, next(3, listOf(0.95, 0.95, 0.95), listOf(0.4, 0.39), productionOn = true))
-        // one production result is not enough to guard either way: perception decides
-        assertEquals(4, next(3, listOf(0.95, 0.95, 0.95), listOf(0.2), productionOn = true))
-        assertEquals(3, next(3, listOf(0.7, 0.7), listOf(0.2), productionOn = true))
+        assertEquals(4, next(3, listOf(0.95, 0.95, 0.95)))              // perception alone decides
+        assertEquals(3, next(3, listOf(0.7, 0.7)))
     }
 
     @Test

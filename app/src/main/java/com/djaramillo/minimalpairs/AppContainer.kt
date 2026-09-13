@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.djaramillo.minimalpairs.audio.Player
-import com.djaramillo.minimalpairs.audio.Recorder
 import com.djaramillo.minimalpairs.clips.ClipDownloader
 import com.djaramillo.minimalpairs.clips.ClipPack
 import com.djaramillo.minimalpairs.clips.PackRenderer
@@ -32,8 +31,6 @@ class AppContainer private constructor(context: Context) {
     /** Outlives any screen: long jobs (rendering the pack) run here, not in a ViewModel. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val player = Player(app)
-    /** The Say-it microphone (one `AudioRecord` per recording; holds nothing between recordings). */
-    val recorder = Recorder(app)
 
     val appVersion: String by lazy {
         try {

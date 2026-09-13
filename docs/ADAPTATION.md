@@ -16,7 +16,6 @@ contrast gets when the learner is clearly struggling or clearly done with it.
 | untrained ratio | `plan.untrained_ratio` | share of trials whose target word was never heard before |
 | voices | `plan.voices` | the pool for the random voice per trial |
 | difficulty band ceiling | `plan.band` | the bands a contrast may ever use; the level ladder picks within it |
-| Say-it size and threshold | `plan.production_pairs`, `plan.production_threshold` | pairs in the production block, accuracy needed per point |
 | level ceiling and pins | `plan.max_level`, `plan.levels` | how far the ladder may go; a pinned contrast never moves |
 | consistency target | `plan.weekly_minutes_target` | shown on Home, judged by the progress report |
 | feedback verbosity | `plan.feedback` | how much the Trial screen shows after an answer |
@@ -106,44 +105,29 @@ contrast, never above `plan.max_level`:
 
 A level moves only on evidence **this session produced**. A session that added
 no untrained result for a contrast does not re-judge the unchanged list (it
-would otherwise move the contrast again on the same evidence), and neither does
-a session that added no production result:
+would otherwise move the contrast again on the same evidence):
 
 - **Promotion** when this session probed the contrast with untrained words and
-  the last three sessions that probed it all had untrained accuracy ≥ 90 %. If
-  Say it is on *and* the contrast already has two production results, the last
-  two must also be ≥ 75 %; a contrast with no production history is promoted on
-  perception alone, so a Say-it block that never runs (no key, no microphone,
-  no network) can never freeze the ladder.
+  the last three sessions that probed it all had untrained accuracy ≥ 90 %.
 - **Demotion** when this session probed the contrast and the last two untrained
-  results were both < 60 % (regression guard), or when this session produced
-  the contrast and the last two production results were both < 40 % while
-  perception stays fine (then the pool narrows so the mouth catches up on
-  common words).
+  results were both < 60 % (the regression guard).
 
 New contrasts start at level 1, or at `plan.levels[id]` when pinned.
 
-## Say it (production) — what adapts
+## Say it — what adapts
 
-The block after the perception trials holds `plan.production_pairs` pairs.
-The app chooses them so that every session pushes on the weakest point:
-
-1. Contrast shares follow the perception weights (`w_eff`) multiplied by
-   `1 + (1 − last_production_pct)`, so a contrast the mouth gets wrong gets
-   more pairs.
-2. Within a contrast, in this order: pairs scored below 2 last time (due
-   again), pairs the learner just missed in this session's perception trials
-   (the perception → production link), never-attempted pairs in the level's
-   bands (commonest first), then the rest. Never the same pair twice in a
-   session; a pair scored 2 is not offered again in the very next session.
-3. Scoring is fixed by the contract (`docs/CONTRACT.md`, "Say it"); the
-   app never lowers the threshold.
+Nothing. **Say it** is a separate mode driven entirely by the coach's
+`sayit.zip` (`docs/CONTRACT.md`, "Say it"): the coach picks the words and their
+sentences, the app shows the `active` ones worst `miss_rate` first, `per_session`
+of them, and records what the learner says. The app does not choose words, does
+not score, and does not touch `plan.json`, `state.json` or `sessions/` for it.
+The Say-it loop and the perception ladder are independent.
 
 ## Consistency (tracked, not judged, by the app)
 
-`state.json.practice` tallies every completed session by UTC day: sessions,
-seconds, perception trials, production pairs; plus the longest streak and
-total seconds. Home shows the current streak and this week's minutes against
+`state.json.practice` tallies every completed perception session by UTC day:
+sessions, seconds and perception trials; plus the longest streak and total
+seconds. Home shows the current streak and this week's minutes against
 `plan.weekly_minutes_target`. The coach's `scripts/progress-report.py` turns
 the tally into the consistency part of its analysis and never lets a good
 score hide a bad week: a regression flag on a week with one session reads
@@ -163,9 +147,9 @@ automatically once the recent shortfall reaches 10 % of trials). The app does
 
 - change `plan.json`, or any value in it, or write a plan of its own;
 - change the session length, the untrained ratio, the band ceiling, the
-  voices, the feedback level, the Say-it size or threshold, or move a pinned
-  level;
+  voices, the feedback level, or move a pinned level;
 - drop a contrast the coach weighted above 0;
+- write `sayit.zip`, or score a Say-it attempt (the cloud does that);
 - score the learner. Percentages are formative signals for the coach's
   ledger; the app shows them plainly and does not rank, grade or gamify beyond
   the streak count on Home.

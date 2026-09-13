@@ -18,8 +18,6 @@ import androidx.compose.ui.unit.dp
 import com.djaramillo.minimalpairs.domain.Ipa
 import com.djaramillo.minimalpairs.domain.model.DayTally
 import com.djaramillo.minimalpairs.domain.model.LearnerState
-import com.djaramillo.minimalpairs.domain.model.Pair
-import com.djaramillo.minimalpairs.domain.model.WordResult
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
@@ -29,7 +27,7 @@ import kotlin.math.roundToInt
 /** `0.775` → `78 %`; null → `—`. */
 fun pctText(v: Double?): String = if (v == null) "—" else "${(v * 100).roundToInt()} %"
 
-// ---- pure helpers behind Home / Summary / Say it (unit tested in ui/CommonTest) ----
+// ---- pure helpers behind Home and Summary (unit tested in ui/CommonTest) ----
 
 /** Direction of a contrast's last untrained result against the one before it. */
 enum class Trend { UP, DOWN, FLAT }
@@ -79,54 +77,6 @@ fun levelChanges(before: LearnerState, after: LearnerState): List<LevelChange> =
         val from = before.contrasts[id]?.level ?: 1
         if (c.level != from) LevelChange(id, from, c.level) else null
     }
-
-/** The one-line verdict shown under a recorded word in the Say-it block. */
-sealed class SayHint {
-    /** Heard as intended and above the threshold: the point is earned. */
-    data object Good : SayHint()
-    /** Heard as intended but the accuracy missed `production_threshold`. */
-    data class BelowThreshold(val acc: Int, val threshold: Int) : SayHint()
-    /**
-     * Heard as the other word. [intended] / [other] are the differing phonemes
-     * of the two words (`""` for an absent one: `our` vs `hour`), so the screen
-     * can say "the θ was heard as s", "the h was not heard" or "an extra t was heard".
-     */
-    data class HeardOther(val intended: String, val other: String) : SayHint()
-    /** The votes tied or nothing voted (`heard == "?"`). */
-    data object Unclear : SayHint()
-    /** Nothing was said twice: scored without an Azure call. */
-    data object NoSpeech : SayHint()
-}
-
-/**
- * The hint for [word]'s [result] in [pair]; `null` when [word] is not in the
- * pair. [noSpeech] marks a word scored without an Azure call because two
- * recordings held no speech.
- */
-fun sayHint(pair: Pair, word: String, result: WordResult, threshold: Int, noSpeech: Boolean = false): SayHint? {
-    val other = pair.other(word) ?: return null
-    if (noSpeech) return SayHint.NoSpeech
-    val isA = word == pair.a.word
-    val diffIntended = pair.diff.getOrNull(if (isA) 0 else 1) ?: ""
-    val diffOther = pair.diff.getOrNull(if (isA) 1 else 0) ?: ""
-    return when (result.heard) {
-        word -> if (result.acc >= threshold) SayHint.Good else SayHint.BelowThreshold(result.acc, threshold)
-        other -> SayHint.HeardOther(diffIntended, diffOther)
-        else -> SayHint.Unclear
-    }
-}
-
-/**
- * Whether the activity must show the `RECORD_AUDIO` prompt now. [request] is
- * the ViewModel's pending request id (`0`: nothing pending), [launched] the id
- * the activity has already prompted for and saved across rotation. The two are
- * compared for inequality, not order: after process death the saved id survives
- * while the ViewModel's counter starts at 0 again, and a "greater than" test
- * would then never prompt again (the Say-it block would sit at "Preparing Say
- * it…" for good). A request of `0` means nothing is pending and the caller
- * clears [launched] instead.
- */
-fun shouldPromptMic(request: Int, launched: Int): Boolean = request != 0 && request != launched
 
 fun ratioText(v: Double): String = String.format(Locale.UK, "%.2f", v)
 
