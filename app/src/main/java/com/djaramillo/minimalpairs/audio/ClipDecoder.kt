@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.djaramillo.minimalpairs.clips.ClipPack
+import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -32,13 +33,32 @@ object ClipDecoder {
                     extractor.setDataSource(source.afd.fileDescriptor, source.afd.startOffset, source.afd.length)
                 is ClipPack.Source.Plain -> extractor.setDataSource(source.file.absolutePath)
             }
-            return decode(extractor)
+            return decode(extractor, trimSilence = true)
         } finally {
             extractor.release()
         }
     }
 
-    private fun decode(extractor: MediaExtractor): PreparedClip {
+    /**
+     * Any container the platform can read, straight from a file.
+     *
+     * [trimSilence] is off for a Say-it attempt: the silence around a model
+     * clip is noise to a player, but the silence around a recording is part of
+     * what an assessment measures, and cutting into the first or last phoneme
+     * would lower a score for a reason the learner never made.
+     */
+    @Throws(IOException::class)
+    fun decode(file: File, trimSilence: Boolean = true): PreparedClip {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            return decode(extractor, trimSilence)
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun decode(extractor: MediaExtractor, trimSilence: Boolean): PreparedClip {
         var trackIndex = -1
         var format: MediaFormat? = null
         for (i in 0 until extractor.trackCount) {
@@ -114,8 +134,8 @@ object ClipDecoder {
         val interleaved = out.toArray()
         if (interleaved.isEmpty()) throw IOException("decoder produced no audio")
         val mono = Pcm.toMono(interleaved, channels.coerceAtLeast(1))
-        val trimmed = Pcm.trim(mono, sampleRate)
-        return PreparedClip(trimmed, sampleRate)
+        val shaped = if (trimSilence) Pcm.trim(mono, sampleRate) else mono
+        return PreparedClip(shaped, sampleRate)
     }
 
     /** Growable ShortArray fed from codec output buffers (16-bit or float PCM). */

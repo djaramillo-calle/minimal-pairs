@@ -3,7 +3,8 @@ package com.djaramillo.minimalpairs.storage
 /**
  * Pure name logic for the data folder (docs/DESIGN.md): the layout is always
  * `Documents/MinimalPairs/{plan.json, state.json, catalog-version.txt, sessions/}`
- * plus `sayit.zip` and `sayit/attempts/` for the Say-it drill (docs/CONTRACT.md).
+ * plus `sayit.zip`, `sayit/attempts/` and `sayit/scores/` for the Say-it drill
+ * (docs/CONTRACT.md).
  * No Android types, unit tested on the JVM.
  */
 object FolderLayout {
@@ -27,6 +28,14 @@ object FolderLayout {
     const val SAYIT_ZIP = "sayit.zip"
     const val SAYIT = "sayit"
     const val SAYIT_ATTEMPTS = "attempts"
+
+    /**
+     * `sayit/scores/` — one immutable `<ts>_<id>.json` per attempt the phone
+     * scored, under the very same stem as the recording and its sidecar
+     * (docs/CONTRACT.md, "`sayit/scores/`"). Never a shared mutable file: the
+     * app still never writes `results.json`, which is the coach's history.
+     */
+    const val SAYIT_SCORES = "scores"
 
     /**
      * Which subfolder to create inside the picked tree, or null to use the tree

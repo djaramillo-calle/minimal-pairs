@@ -468,12 +468,17 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * it **read-only**, copying it out for [SayItPack] to unpack into private
      * storage. It has no write path to it at all: no create, no rename, no
      * delete. The only files it ever creates are its own new
-     * `sayit/attempts/<ts>_<id>.m4a` and `.json`, and the one deletion it makes
-     * is the 30-day retention sweep in [sweepSayItAttempts], which removes
-     * scored attempt audio and nothing else.
+     * `sayit/attempts/<ts>_<id>.m4a` and `.json` and, for an attempt the phone
+     * managed to score, one immutable `sayit/scores/<ts>_<id>.json`
+     * ([writeSayItScore]); the one deletion it makes is the 30-day retention
+     * sweep in [sweepSayItAttempts], which removes scored attempt audio and
+     * nothing else.
      *
-     * There is no network call and no scoring anywhere in this section: the
-     * app records, writes and displays, the cloud scores.
+     * There is no network call in this class and never a write to a coach file:
+     * `sayit.zip`, and the `words.json` and `results.json` inside it, stay the
+     * coach's. A score file is written once, under the attempt's own stem, and
+     * never edited afterwards — the rolling history is `results.json`, which
+     * the coach keeps.
      */
 
     /**
@@ -616,6 +621,39 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     }
 
     /**
+     * Write one score file: `sayit/scores/<ts>_<id>.json`, under the same stem
+     * as the attempt it belongs to (docs/CONTRACT.md, "`sayit/scores/`").
+     * Returns true when it landed.
+     *
+     * Written once and never edited: a name already present is left exactly as
+     * it is and this returns false, because a score the coach may already have
+     * read is not ours to rewrite. The name is checked to be an attempt stem
+     * before anything is created, so nothing but `<ts>_<id>.json` can ever be
+     * made here — a caller cannot reach `sayit.zip`, `results.json` or any
+     * other name through this door.
+     *
+     * The file is only ever written after [writeSayItAttempt] returned the very
+     * stem it carries, so a score never exists without the recording and the
+     * sidecar it describes.
+     */
+    suspend fun writeSayItScore(fileName: String, json: String): Boolean = withContext(Dispatchers.IO) {
+        if (!SayItNames.isAttemptSidecar(fileName)) return@withContext false
+        try {
+            val dir = sayItChild(FolderLayout.SAYIT_SCORES, create = true) ?: return@withContext false
+            if (fileName in childUris(dir)) return@withContext false
+            val doc = dir.createFile(MIME_BINARY, fileName) ?: return@withContext false
+            if (writeText(doc.uri, json)) {
+                true
+            } else {
+                try { doc.delete() } catch (e: Exception) { /* an empty file is better than a wrong one */ }
+                false
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * The retention sweep (docs/CONTRACT.md): delete the attempt audio that is
      * more than 30 days old **and** already scored in [results], and the
      * orphaned audio that has no sidecar beside it. Returns how many files
@@ -665,19 +703,28 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     }
 
     /**
-     * `sayit/attempts/`, the one folder the app owns. With [create] it and its
-     * `sayit/` parent are made when missing; without, a missing folder is null
-     * and the caller treats it as "no attempts".
+     * `sayit/attempts/`, one of the two folders the app owns. With [create] it
+     * and its `sayit/` parent are made when missing; without, a missing folder
+     * is null and the caller treats it as "no attempts".
      */
-    private fun attemptsDir(create: Boolean): DocumentFile? = try {
+    private fun attemptsDir(create: Boolean): DocumentFile? =
+        sayItChild(FolderLayout.SAYIT_ATTEMPTS, create)
+
+    /**
+     * A subfolder of `sayit/` the app owns — [FolderLayout.SAYIT_ATTEMPTS] or
+     * [FolderLayout.SAYIT_SCORES] — creating it and its `sayit/` parent when
+     * [create] says so. `sayit.zip` is a sibling of `sayit/`, not a child of
+     * it, so nothing here can reach a coach file.
+     */
+    private fun sayItChild(name: String, create: Boolean): DocumentFile? = try {
         val root = root()
         val sayit = if (root == null) null else {
             findChild(root, FolderLayout.SAYIT)?.takeIf { it.isDirectory }
                 ?: if (create) root.createDirectory(FolderLayout.SAYIT) else null
         }
         if (sayit == null) null else {
-            findChild(sayit, FolderLayout.SAYIT_ATTEMPTS)?.takeIf { it.isDirectory }
-                ?: if (create) sayit.createDirectory(FolderLayout.SAYIT_ATTEMPTS) else null
+            findChild(sayit, name)?.takeIf { it.isDirectory }
+                ?: if (create) sayit.createDirectory(name) else null
         }
     } catch (e: Exception) {
         null
