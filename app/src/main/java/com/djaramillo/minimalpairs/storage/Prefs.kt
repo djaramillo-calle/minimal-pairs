@@ -60,6 +60,20 @@ class Prefs(context: Context) {
         sp.edit().remove(KEY_AZURE_REGION).remove(KEY_AZURE_KEY).apply()
     }
 
+    /**
+     * The catalog version whose clip pack has been published to the data folder
+     * as `clips.zip`, or null when none has (docs/CONTRACT.md).
+     *
+     * The export is a ~60 MB write the user's Autosync then mirrors to Drive,
+     * so it happens once per catalog version and not on every launch. It lives
+     * in private preferences, which means a reinstall forgets it — which is
+     * right: the app on the far side of a reinstall has no pack, and what it
+     * does with the folder's `clips.zip` is install it.
+     */
+    var exportedPackCatalog: String?
+        get() = sp.getString(KEY_EXPORTED_PACK_CATALOG, null)
+        set(value) = sp.edit().putString(KEY_EXPORTED_PACK_CATALOG, value).apply()
+
     var override: Override
         get() {
             val enabled = sp.getBoolean(KEY_OVERRIDE_ENABLED, false)
@@ -90,6 +104,7 @@ class Prefs(context: Context) {
         const val KEY_OVERRIDE_WEIGHTS = "override_weights"
         const val KEY_AZURE_REGION = "azure_region"
         const val KEY_AZURE_KEY = "azure_key"
+        const val KEY_EXPORTED_PACK_CATALOG = "exported_pack_catalog"
         val weightsSerializer = MapSerializer(String.serializer(), Double.serializer())
     }
 }

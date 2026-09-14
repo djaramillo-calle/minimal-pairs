@@ -64,6 +64,29 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     /** Where a file ended up. */
     enum class WriteOutcome { WRITTEN, ALREADY_THERE, FOLDER_UNAVAILABLE, FAILED }
 
+    /**
+     * One writer at a time in the folder.
+     *
+     * Two assessments can finish at once — the drill deliberately lets a second
+     * take be recorded while the first is still being scored — and the first
+     * thing each one does is make `sayit/scores/` if it is not there. A
+     * `DocumentsProvider` does not hand back the directory that already exists:
+     * it makes a second one called `scores (1)`, and the score written into it
+     * is reported as saved and never reaches the coach. The same goes for the
+     * two halves of an attempt against the sweep, and for `clips.zip` against a
+     * second export. So every write and every delete of a name the app owns
+     * takes this lock.
+     *
+     * They are all short. The one long write — the ~60 MB of `clips.zip` — is
+     * deliberately **not** held under it: the lock is there to stop two writers
+     * racing for the same *name*, and the bytes of `clips.zip.tmp` go into a
+     * document this class created exclusively and nothing else can reach. Only
+     * making that document and moving it into place are locked, so an export
+     * running at launch never leaves a recording waiting a minute to be saved.
+     * [ClipArchive] and [PackSync] keep the second export from existing at all.
+     */
+    private val folderLock = Mutex()
+
     // ---- picking --------------------------------------------------------
 
     /**
@@ -399,18 +422,22 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     // ---- helpers --------------------------------------------------------
 
     private fun writeText(uri: Uri, text: String): Boolean = try {
-        val out = try {
-            resolver.openOutputStream(uri, "wt")
-        } catch (e: FileNotFoundException) {
-            null
-        } catch (e: IllegalArgumentException) {
-            // Some providers reject the "wt" mode string; plain "w" truncates on ExternalStorageProvider too.
-            resolver.openOutputStream(uri)
-        } ?: resolver.openOutputStream(uri)
-        out?.use { it.write(text.toByteArray(Charsets.UTF_8)); it.flush(); true } ?: false
+        openWrite(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)); it.flush(); true } ?: false
     } catch (e: Exception) {
         false
     }
+
+    /**
+     * An output stream that truncates, or null. Some providers reject the
+     * `"wt"` mode string; plain `"w"` truncates on ExternalStorageProvider too.
+     */
+    private fun openWrite(uri: Uri): java.io.OutputStream? = try {
+        resolver.openOutputStream(uri, "wt")
+    } catch (e: FileNotFoundException) {
+        null
+    } catch (e: IllegalArgumentException) {
+        resolver.openOutputStream(uri)
+    } ?: resolver.openOutputStream(uri)
 
     /**
      * Every child of [dir] as display name to document uri, read in one query.
@@ -461,6 +488,145 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     /** A zero-length document (a `createFile` whose content write failed) counts as missing. */
     private fun isEmptyFile(doc: DocumentFile): Boolean = try { doc.length() == 0L } catch (e: Exception) { false }
 
+    // ---- clips.zip ------------------------------------------------------
+
+    /**
+     * The clip pack in the folder (docs/CONTRACT.md, "`clips.zip`"). The app
+     * writes it and the coach only ever reads it; the coach's own two files,
+     * `plan.json` and `sayit.zip`, are untouched by everything here.
+     *
+     * It is the app's insurance against its own private storage: `filesDir/clips/`
+     * goes when the app is uninstalled, and rendering it again is some 11,600
+     * clips of neural TTS. What decides when to write it is [PackExport]; what packs
+     * it is [ClipArchive]; what installs it again is [ClipDownloader], through
+     * [copyClipsZip] and the same validation as a download.
+     */
+
+    /** Whether the folder holds a `clips.zip` at all — by name, nothing is read. */
+    suspend fun hasClipsZip(): Boolean = withContext(Dispatchers.IO) { clipsZip() != null }
+
+    /** Size of the folder's `clips.zip`, or null when there is none. */
+    suspend fun clipsZipBytes(): Long? = withContext(Dispatchers.IO) {
+        try { clipsZip()?.length() } catch (e: Exception) { null }
+    }
+
+    /**
+     * Read the folder's `clips.zip` through [read], which is given the open
+     * stream and must not keep it. Null when there is no zip or it cannot be
+     * opened. Used for the one cheap question — what does its `index.json`
+     * say? — that decides whether the 60 MB is worth copying or rewriting.
+     */
+    suspend fun <T> readClipsZip(read: (java.io.InputStream) -> T?): T? = withContext(Dispatchers.IO) {
+        val doc = clipsZip() ?: return@withContext null
+        try {
+            resolver.openInputStream(doc.uri)?.use { read(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Copy the folder's `clips.zip` into [dest] for the unpacker. Bounded, leaves no half file. */
+    suspend fun copyClipsZip(dest: File, maxBytes: Long): Boolean = withContext(Dispatchers.IO) {
+        val doc = clipsZip() ?: return@withContext false
+        copyDocumentTo(doc.uri, dest, maxBytes)
+    }
+
+    /**
+     * Publish the clip pack: [write] is handed the output stream of a fresh
+     * `clips.zip.tmp` and fills it; only when it returns does the temporary
+     * document take the name `clips.zip`.
+     *
+     * Nothing half written is ever the live file. The export is tens of
+     * megabytes over a `DocumentsProvider` that a two-way sync is watching, and
+     * the process can be killed at any moment: a truncated `clips.zip` would
+     * look exactly like the pack he already paid for and fail validation only
+     * on the next reinstall, which is the one moment it is needed. A leftover
+     * `clips.zip.tmp` from a killed export is deleted by the next one.
+     *
+     * The folder lock is taken for making the temporary document and for the
+     * move, not for the write itself — see [folderLock]. An exception from
+     * [write] is rethrown after the temporary document is dropped, so a pack
+     * that would not fit or would not be complete fails loudly rather than
+     * leaving a quiet, plausible file behind.
+     */
+    suspend fun writeClipsZip(write: (java.io.OutputStream) -> Unit): WriteOutcome = withContext(Dispatchers.IO) {
+        val root = root() ?: return@withContext WriteOutcome.FOLDER_UNAVAILABLE
+        val tmp = folderLock.withLock { makeClipsTemp(root) } ?: return@withContext WriteOutcome.FAILED
+        var failure: Throwable? = null
+        val filled = try {
+            openWrite(tmp.uri)?.use { out -> write(out); out.flush(); true } ?: false
+        } catch (e: Throwable) {
+            failure = e
+            false
+        }
+        if (!filled) {
+            folderLock.withLock { drop(tmp) }
+            failure?.let { throw it }
+            return@withContext WriteOutcome.FAILED
+        }
+        folderLock.withLock { swapClipsZipIn(root, tmp) }
+    }
+
+    /** `clips.zip` in the folder root, or null. */
+    private fun clipsZip(): DocumentFile? = try {
+        val root = root()
+        if (root == null) null else findChild(root, FolderLayout.CLIPS_ZIP)?.takeIf { it.isFile }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * A fresh, empty `clips.zip.tmp`, dropping any leftover of an export that
+     * was killed. Null when the provider will not make it, or renamed it around
+     * a collision — a document called `clips.zip.tmp (1)` is not ours to move
+     * into place, and moving it would rename the wrong file.
+     */
+    private fun makeClipsTemp(root: DocumentFile): DocumentFile? = try {
+        findChild(root, FolderLayout.CLIPS_ZIP_TMP)?.let { drop(it) }
+        val doc = root.createFile(MIME_BINARY, FolderLayout.CLIPS_ZIP_TMP)
+        when {
+            doc == null -> null
+            !FolderLayout.isNamed(FolderLayout.CLIPS_ZIP_TMP, doc.name) -> { drop(doc); null }
+            else -> doc
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * Move the written temporary document into place as `clips.zip`.
+     *
+     * The existing one is deleted first because a provider asked for a name
+     * that is taken makes `clips (1).zip` instead, and that file is not the
+     * pack: nothing reads it, and it would cost him the upload of 60 MB that
+     * can never be installed. If the rename does not produce exactly
+     * `clips.zip` the document is dropped and this reports failure; the folder
+     * is then left without a pack and the next launch exports again, which is
+     * the safe way round.
+     */
+    private fun swapClipsZipIn(root: DocumentFile, tmp: DocumentFile): WriteOutcome = try {
+        findChild(root, FolderLayout.CLIPS_ZIP)?.let { drop(it) }
+        val moved = try {
+            DocumentsContract.renameDocument(resolver, tmp.uri, FolderLayout.CLIPS_ZIP)
+        } catch (e: Exception) {
+            null
+        }
+        val landed = moved?.let { DocumentFile.fromSingleUri(app, it) }
+        if (landed != null && FolderLayout.isNamed(FolderLayout.CLIPS_ZIP, landed.name)) {
+            WriteOutcome.WRITTEN
+        } else {
+            drop(landed ?: tmp)
+            WriteOutcome.FAILED
+        }
+    } catch (e: Exception) {
+        WriteOutcome.FAILED
+    }
+
+    /** Delete a document the app owns, never mind whether it was there. */
+    private fun drop(doc: DocumentFile) {
+        try { doc.delete() } catch (e: Exception) { /* a stray temporary file is the worst case */ }
+    }
+
     // ---- Say it ---------------------------------------------------------
 
     /**
@@ -483,20 +649,6 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * the coach keeps.
      */
 
-    /**
-     * One writer at a time in `sayit/`.
-     *
-     * Two assessments can finish at once — the drill deliberately lets a second
-     * take be recorded while the first is still being scored — and the first
-     * thing each one does is make `sayit/scores/` if it is not there. A
-     * `DocumentsProvider` does not hand back the directory that already exists:
-     * it makes a second one called `scores (1)`, and the score written into it
-     * is reported as saved and never reaches the coach. The same goes for the
-     * two halves of an attempt against the sweep. So every write and every
-     * delete under `sayit/` takes this lock; they are all short, and the one
-     * long step (copying the recording) is bounded by the 20 s cap.
-     */
-    private val sayItLock = Mutex()
 
     /**
      * Size and modification time of `sayit.zip`, so a refresh can tell it has
@@ -536,29 +688,41 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun copySayItZip(dest: File, maxBytes: Long): Boolean = withContext(Dispatchers.IO) {
         val doc = sayItZip() ?: return@withContext false
-        try {
-            dest.parentFile?.mkdirs()
-            val copied = resolver.openInputStream(doc.uri)?.use { input ->
-                dest.outputStream().use { out ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var total = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        total += n
-                        if (total > maxBytes) return@use false
-                        out.write(buffer, 0, n)
-                    }
-                    out.flush()
-                    true
+        copyDocumentTo(doc.uri, dest, maxBytes)
+    }
+
+    /**
+     * Copy the document at [uri] into [dest], counting the bytes as they
+     * arrive and stopping at [maxBytes]. False on any trouble, leaving no half
+     * file. Shared by the two files the app copies out of the folder —
+     * `sayit.zip` and `clips.zip` — which are both on the far side of a
+     * two-way sync and both read with a declared size that is a claim, not a
+     * fact: a provider that reports a small file and then streams without end
+     * would otherwise fill the phone one buffer at a time.
+     */
+    private fun copyDocumentTo(uri: Uri, dest: File, maxBytes: Long): Boolean = try {
+        dest.parentFile?.mkdirs()
+        val copied = resolver.openInputStream(uri)?.use { input ->
+            dest.outputStream().use { out ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                var ok = true
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > maxBytes) { ok = false; break }
+                    out.write(buffer, 0, n)
                 }
-            } ?: false
-            if (!copied) dest.delete()
-            copied
-        } catch (e: Exception) {
-            dest.delete()
-            false
-        }
+                out.flush()
+                ok
+            }
+        } ?: false
+        if (!copied) dest.delete()
+        copied
+    } catch (e: Exception) {
+        dest.delete()
+        false
     }
 
     /**
@@ -598,7 +762,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * attempt already in the folder may be one the coach has not scored yet.
      */
     suspend fun writeSayItAttempt(audio: File, sidecar: AttemptSidecar): String? = withContext(Dispatchers.IO) {
-        sayItLock.withLock { writeAttemptLocked(audio, sidecar) }
+        folderLock.withLock { writeAttemptLocked(audio, sidecar) }
     }
 
     private fun writeAttemptLocked(audio: File, sidecar: AttemptSidecar): String? {
@@ -671,7 +835,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun writeSayItScore(fileName: String, json: String): Boolean = withContext(Dispatchers.IO) {
         if (!SayItNames.isAttemptSidecar(fileName)) return@withContext false
-        sayItLock.withLock {
+        folderLock.withLock {
             try {
                 val dir = sayItChild(FolderLayout.SAYIT_SCORES, create = true) ?: return@withLock false
                 // One listing, not one round trip per file: `sayit/scores/`
@@ -722,7 +886,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun sweepSayItAttempts(results: SayItResults?, now: java.time.Instant): Int? =
         withContext(Dispatchers.IO) {
-            sayItLock.withLock { sweepLocked(results, now) }
+            folderLock.withLock { sweepLocked(results, now) }
         }
 
     private fun sweepLocked(results: SayItResults?, now: java.time.Instant): Int? = try {
@@ -815,14 +979,7 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * [writeText], where some providers reject `"wt"`.
      */
     private fun copyInto(uri: Uri, source: File): Boolean = try {
-        val out = try {
-            resolver.openOutputStream(uri, "wt")
-        } catch (e: FileNotFoundException) {
-            null
-        } catch (e: IllegalArgumentException) {
-            resolver.openOutputStream(uri)
-        } ?: resolver.openOutputStream(uri)
-        out?.use { o -> source.inputStream().use { it.copyTo(o) }; o.flush(); true } ?: false
+        openWrite(uri)?.use { o -> source.inputStream().use { it.copyTo(o) }; o.flush(); true } ?: false
     } catch (e: Exception) {
         false
     }

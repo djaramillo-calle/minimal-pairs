@@ -41,6 +41,7 @@ class SayItWritesTest {
         "audioName", "sidecarName",               // one attempt
         "fileName",                               // one score file, checked to be <ts>_<id>.json first
         "f.name",                                 // republished session copies
+        "FolderLayout.CLIPS_ZIP_TMP",             // the clip pack, renamed to clips.zip once written
     )
 
     @Test

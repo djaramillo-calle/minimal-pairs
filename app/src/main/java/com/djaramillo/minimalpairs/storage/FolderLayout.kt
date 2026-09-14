@@ -16,6 +16,32 @@ object FolderLayout {
     const val CATALOG_VERSION = "catalog-version.txt"
     const val SESSIONS = "sessions"
 
+    /**
+     * `clips.zip` — the rendered clip pack, written by the APP and only ever
+     * read by the coach (docs/CONTRACT.md). It is the one large file in the
+     * folder (~60 MB) and it is there for one reason: `filesDir/clips/` is
+     * app-private and Android wipes it on uninstall, so without this the whole
+     * pack would have to be rendered from Azure again after every reinstall.
+     *
+     * [CLIPS_ZIP_TMP] is what it is written under first, so a crash or a sync
+     * half way through never leaves a truncated `clips.zip` behind; a leftover
+     * temp is deleted by the next export.
+     */
+    const val CLIPS_ZIP = "clips.zip"
+    const val CLIPS_ZIP_TMP = "clips.zip.tmp"
+
+    /**
+     * Whether a document a `DocumentsProvider` just created or renamed is the
+     * file that was asked for.
+     *
+     * A provider asked for a name that is already taken does not hand back the
+     * existing document: it makes `clips (1).zip` beside it. Anything written
+     * there is reported as saved, syncs to Drive, and is never the file anyone
+     * reads. A null name is a provider that will not answer the question, which
+     * is not evidence of a collision. Same rule for every name the app creates.
+     */
+    fun isNamed(expected: String, actual: String?): Boolean = actual == null || actual == expected
+
     // ---- Say it ---------------------------------------------------------
 
     /**
