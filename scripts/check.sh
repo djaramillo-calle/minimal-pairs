@@ -62,6 +62,14 @@ for text in blocks:
     elif "per_session" in obj:                  # sayit.zip words.json
         sayit_words = obj
         continue
+    elif "attempt_file" in obj:                 # sayit/scores/<ts>_<id>.json
+        d = os.path.join(out, "sayit", "scores")
+        os.makedirs(d, exist_ok=True)
+        # The score file is named exactly like the sidecar it names, which is
+        # the whole point of the rule; write it under that name and no other.
+        with open(os.path.join(d, obj["attempt_file"]), "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+        continue
     elif "clip_played" in obj:                  # sayit/attempts/<ts>_<id>.json
         d = os.path.join(out, "sayit", "attempts")
         os.makedirs(d, exist_ok=True)

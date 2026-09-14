@@ -120,9 +120,18 @@ Nothing. **Say it** is a separate mode driven entirely by the coach's
 `sayit.zip` (`docs/CONTRACT.md`, "Say it"): the coach picks the words and their
 sentences, the app shows the first `per_session` of the `active` ones in the
 contract's fixed order (`miss_rate` descending, then `added` descending,
-`flagged_on` descending and `id` ascending), and records what the learner says. The app does not choose words, does
-not score, and does not touch `plan.json`, `state.json` or `sessions/` for it.
-The Say-it loop and the perception ladder are independent.
+`flagged_on` descending and `id` ascending), and records what the learner says.
+The app does not choose words and does not touch `plan.json`, `state.json` or
+`sessions/` for it. The Say-it loop and the perception ladder are independent.
+
+The phone does now **score** an attempt, the moment it is recorded, with its own
+separate Azure Speech resource, and writes one immutable
+`sayit/scores/<ts>_<id>.json` per scored attempt (`docs/CONTRACT.md`). That is
+measurement, not adaptation: it changes no word, no order, no level and no plan.
+Nothing in the drill reacts to the number — the coach does. And when the
+assessment cannot happen (no key, no network, Azure refusing) no file is written
+and the attempt waits for the coach, exactly as before; the app never estimates
+a score of its own.
 
 ## Consistency (tracked, not judged, by the app)
 
@@ -150,7 +159,10 @@ automatically once the recent shortfall reaches 10 % of trials). The app does
 - change the session length, the untrained ratio, the band ceiling, the
   voices, the feedback level, or move a pinned level;
 - drop a contrast the coach weighted above 0;
-- write `sayit.zip`, or score a Say-it attempt (the cloud does that);
-- score the learner. Percentages are formative signals for the coach's
+- write `sayit.zip`, `results.json` or `words.json`, or edit a score file it
+  has already written (each one is written once, never rewritten);
+- invent a Say-it score. The phone shows a number only when Azure returned one
+  for that recording; otherwise it says the attempt is saved and waiting;
+- judge the learner. Percentages are formative signals for the coach's
   ledger; the app shows them plainly and does not rank, grade or gamify beyond
   the streak count on Home.

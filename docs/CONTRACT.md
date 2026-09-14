@@ -15,16 +15,23 @@ Documents/MinimalPairs/
 │   ├── 20260911T070211Z.json   one file per completed session, append-only, never rewritten
 │   └── ...
 ├── sayit.zip               written by the COACH, read by the app (never written by the app)
-└── sayit/attempts/         written by the APP, read by the coach
-    ├── 20260913T180402Z_imperialist.m4a
-    ├── 20260913T180402Z_imperialist.json
-    └── ...
+└── sayit/
+    ├── attempts/           written by the APP, read by the coach
+    │   ├── 20260913T180402Z_imperialist.m4a
+    │   ├── 20260913T180402Z_imperialist.json
+    │   └── ...
+    └── scores/             written by the APP, read by the coach
+        ├── 20260913T180402Z_imperialist.json
+        └── ...
 ```
 
 Rules that never change:
 
 - The app never writes `plan.json` or `sayit.zip`. The coach writes only those
-  two and never anything else.
+  two and never anything else. In particular the app never writes `results.json`
+  (which lives inside `sayit.zip`): the rolling Say-it history is the coach's,
+  and a score the phone produced is a new immutable file of its own, never an
+  edit to a shared one.
 - Session files are immutable once written. The app never edits, renames or
   deletes them. The coach may archive old ones on Drive; the app does not care:
   a session that reached the folder once is not put back when it later
@@ -244,13 +251,30 @@ of the perception drill: it has its own files and touches neither `plan.json`,
 repository) flags the words the learner mispronounced in his daily reads,
 renders a model clip of each word's own sentence, and packs everything into one
 zip. The app plays the model, records the learner reading the same sentence and
-writes the recording back. **The app never scores anything and uses no network
-for this**: the Azure key stays in the cloud, and the app only displays results
-it is given.
+writes the recording back.
 
 The unit is always the word **in its sentence**, never the word alone: the
 failures being drilled are connected-speech failures, and an isolated word is a
-different motor task.
+different motor task. Everything below — the model clip, the recording, the
+reference text of every assessment, cloud or phone — is that whole sentence.
+
+**Who scores, and with which key.** The coach scores every attempt it sees, and
+its `results.json` is the history. The phone *also* scores, on the spot, so that
+the learner gets an answer while he is still in the drill: the coach syncs a few
+times a day, and a loop whose feedback arrives hours later is not a daily habit.
+It does so with a **second, separate Azure Speech resource created for the phone
+alone** — its own free-tier key, its own region, entered in Settings. The
+coach's key runs the coach's pipeline in the cloud and is never on the phone: a
+phone is lost, lent and backed up, and the pipeline the rest of the coaching
+system depends on must not go with it. Settings says so under the field.
+
+**A score is real or absent.** When the phone cannot assess an attempt — no key
+yet, no network, Azure refusing or throttling, a recording Azure heard no speech
+in — it keeps the recording and the sidecar exactly as it would have anyway,
+writes **no** score file, and tells the learner that the attempt is saved and
+the coach will score it at the next sync. The app never estimates, interpolates
+or defaults a score. That fallback is the ordinary path on the underground and
+before a key is entered, and it is the behaviour the whole mode degrades to.
 
 ### `sayit.zip` — the whole coach → app payload
 
@@ -377,6 +401,47 @@ silently ruins the score.
 `clip_played` counts how many times the learner played the model before the
 attempt was finished. Recording is capped at 20 s.
 
+### `sayit/scores/<ts>_<id>.json` — app → coach
+
+One file per attempt the **phone** managed to score, beside the recording and
+its sidecar and under exactly the same `<ts>_<id>` stem. Written once and never
+edited, never a shared mutable file: the coach reads these, keeps the history in
+`results.json`, and the app still never writes `results.json` or `sayit.zip`.
+
+```json
+{"version": 1, "id": "imperialist", "word": "imperialist",
+ "sentence": "This is not to deny that the unexpected revival of imperialist policies and methods takes place under vastly changed conditions.",
+ "at": "2026-09-14T07:10:02Z",
+ "source": "phone-azure", "locale": "en-GB",
+ "accuracy": 71.0, "fluency": 64.0, "completeness": 100.0, "pron": 68.0,
+ "flagged": ["imperialist"],
+ "attempt_file": "20260914T071002Z_imperialist.json"}
+```
+
+| Key | Meaning |
+|---|---|
+| `id` / `word` / `sentence` | copied verbatim from `words.json`, exactly as the sidecar copies them; `sentence` is the reference text the scores are against |
+| `at` | the attempt's `started`, so this file, the audio and the sidecar all name one second |
+| `source` | who scored it. The phone writes only `phone-azure` |
+| `locale` | the assessment locale, `en-GB` |
+| `accuracy` / `fluency` / `completeness` / `pron` | Azure Pronunciation Assessment's four numbers, 0–100, one decimal; any of them may be `null` when Azure did not return it, and `null` never stands in for a number the app made up |
+| `flagged` | the words of `sentence` Azure marked `Mispronunciation` or `Omission`, in its order, each once. An `Insertion` (a word he said that is not in the sentence) is not flagged: it is not one of the coach's words |
+| `attempt_file` | the sidecar beside the recording, `<ts>_<id>.json` — the same stem as this file's own name |
+
+The assessment is **scripted**: `ReferenceText` is `sentence` verbatim,
+`GradingSystem` `HundredMark`, `Granularity` `Phoneme`, `Dimension`
+`Comprehensive`, `EnableMiscue` **true** (so a word he skipped comes back as an
+`Omission` rather than quietly lowering nothing), `PhonemeAlphabet` `IPA`,
+language `en-GB`. The recording is sent as PCM16 mono 16 kHz — the `.m4a` in
+the folder is decoded and resampled for the request and is never itself changed.
+
+The three file names of one attempt are built from one string, so the coach
+joins them by stem and never parses an id out of a name: `<ts>_<id>.m4a` and
+`<ts>_<id>.json` in `attempts/`, `<ts>_<id>.json` in `scores/`. A score file
+exists only for an attempt that reached the folder, so a score is never orphaned;
+the reverse is ordinary and expected — most attempts of a phone with no key have
+no score file at all, and that is what the coach scores.
+
 ### Housekeeping
 
 The app deletes local attempt **audio** older than 30 days whose sidecar name
@@ -384,6 +449,9 @@ already appears in `results.json` — the attempt has been scored, so the bytes
 are no longer needed on the phone or in Drive. The sidecars stay: they are tiny
 and they are the coach's record that the attempt was already handled. Settings
 says so.
+
+Score files are never swept. They are smaller than a sidecar, they are the
+phone's half of the record, and the coach decides what to do with them.
 
 The same sweep also deletes attempt **audio with no sidecar beside it** once it
 is more than a day old. That is the wreckage of a write whose sidecar never

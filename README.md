@@ -51,9 +51,12 @@ Release; the app offers the download on first run. The release APK is about
 - **Summary** – overall score, per contrast, mean reaction time, and the name
   of the session file that was written.
 - **Say it** – the sentence drill the coach sends in `sayit.zip`: play the model
-  clip, read the same sentence aloud, and the recording goes back to the folder
-  for the cloud to score. The phone never scores and never uses the network for
-  it, and it says so when no list has arrived yet.
+  clip, read the same sentence aloud, hear the two back to back, and get the
+  score on the spot. The phone scores the whole sentence with its own separate
+  Azure Speech resource (below) and leaves the recording in the folder for the
+  coach as well. With no key, no connection or Azure unavailable it says so
+  plainly — the recording is saved and the coach scores it at the next sync —
+  and never makes a number up.
 - **Settings** – data folder picker and status, the coach plan (read-only), a
   manual override, clip pack status and download, versions.
 
@@ -87,9 +90,16 @@ app, so nothing is lost. The release notes say which key signed each build.
   Settings → "Import clips.zip…". Both go through the same checks as a
   download and land in the same place.
 
-### Your own Azure key (no GitHub secrets needed)
+### This phone's own Azure key (no GitHub secrets needed)
 
-Anyone can use the app with their own Azure Speech resource:
+The app uses one Azure Speech resource of its own for two things: scoring **Say
+it** sentences the moment they are recorded, and rendering the clip pack.
+
+**Create a second, separate resource for the phone.** Its own key, its own
+region, and never the key the coach's pipeline runs on. A phone is lost, lent
+and backed up; keeping the two apart means the worst case costs this free
+resource and nothing else, and the coach's pipeline keeps running whatever
+happens to the phone. The free F0 tier covers both uses comfortably.
 
 1. In the Azure portal create a *Speech* resource (the free F0 tier covers
    the whole pack many times over: about 70,000 characters for 1941 words ×
@@ -104,8 +114,10 @@ Anyone can use the app with their own Azure Speech resource:
 
 The key is stored only in the app's private preferences on the phone (the
 app opts out of Android backup), is sent only to
-`<region>.tts.speech.microsoft.com`, and never appears in the data folder,
-in session files, or in logs. "Forget key" removes it.
+`<region>.tts.speech.microsoft.com` (rendering) and
+`<region>.stt.speech.microsoft.com` (scoring a Say-it sentence), and never
+appears in the data folder, in session files, or in logs. "Forget key" removes
+it; **Say it** then falls back to saving the recording for the coach.
 
 ### Sync with the coach (Autosync for Google Drive)
 
@@ -119,9 +131,11 @@ settings folder:
 | Sync method | Two-way |
 | Autosync | on |
 
-The app writes `state.json`, `catalog-version.txt` and one file per session
-under `sessions/`; the coach writes `plan.json`. Nothing else goes through the
-folder. Details: [`docs/CONTRACT.md`](docs/CONTRACT.md).
+The app writes `state.json`, `catalog-version.txt`, one file per session under
+`sessions/`, and for **Say it** its recordings under `sayit/attempts/` plus one
+immutable score file per scored attempt under `sayit/scores/`; the coach writes
+`plan.json` and `sayit.zip`. Nothing else goes through the folder. Details:
+[`docs/CONTRACT.md`](docs/CONTRACT.md).
 
 ## How the coach tunes it
 

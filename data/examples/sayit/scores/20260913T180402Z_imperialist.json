@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "id": "imperialist",
+ "word": "imperialist",
+ "sentence": "This is not to deny that the unexpected revival of imperialist policies and methods takes place under vastly changed conditions.",
+ "at": "2026-09-13T18:04:02Z",
+ "source": "phone-azure",
+ "locale": "en-GB",
+ "accuracy": 71.0,
+ "fluency": 64.0,
+ "completeness": 100.0,
+ "pron": 68.0,
+ "flagged": [
+  "imperialist"
+ ],
+ "attempt_file": "20260913T180402Z_imperialist.json"
+}

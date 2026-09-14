@@ -5,7 +5,8 @@ Usage:
   validate-contract.py <folder> [--catalog data/catalog/catalog.json] [--quiet]
   validate-contract.py --selftest
 
-The folder may hold plan.json, state.json, catalog-version.txt and sessions/.
+The folder may hold plan.json, state.json, catalog-version.txt, sessions/ and
+the Say-it files (sayit.zip, sayit/attempts/, sayit/scores/).
 Each file present is checked (required keys, types, ranges, enumerations, file
 name pattern, and that a session's summary agrees with its trial rows).
 Missing files are reported as notes, not violations, because a fresh folder
@@ -43,6 +44,9 @@ SESSION_FILE_RE = re.compile(r"^\d{8}T\d{6}Z\.json$")
 CATALOG_VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 ATTEMPT_RE = re.compile(r"^(\d{8}T\d{6}Z)_([A-Za-z0-9._-]{1,64})$")
 SAYIT_STATUS = ("active", "retired", "tutor")
+# Who produced a sayit/scores/ file. The phone writes only "phone-azure".
+SAYIT_SCORE_SOURCES = ("phone-azure",)
+SAYIT_SCORE_LOCALES = ("en-GB",)
 # A clip keeps the coach's own spelling of the word, so an apostrophe or an
 # accent is ordinary; what makes an entry dangerous is a separator, a colon, a
 # control character or a hidden name (docs/CONTRACT.md, "Say it").
@@ -652,6 +656,82 @@ def check_attempt_sidecar(obj, fname, report):
             c.bad("file name timestamp %s does not match started %s" % (m.group(1), obj["started"]))
 
 
+def check_sayit_score(obj, fname, report):
+    """One `sayit/scores/<ts>_<id>.json` against docs/CONTRACT.md.
+
+    The file is the phone's own assessment of one attempt: written once, never
+    edited, and always under the very stem of the recording it describes. It is
+    not the history — that is results.json, inside sayit.zip, which the app
+    never writes.
+    """
+    where = "sayit/scores/" + fname
+    c = Checker(report, where)
+    stem = fname[:-len(".json")]
+    m = ATTEMPT_RE.match(stem)
+    if not m:
+        c.bad("file name must look like <ts>_<id>.json with <ts> = 20260914T071002Z")
+    if not isinstance(obj, dict):
+        c.bad("top level must be an object")
+        return
+    c.version(obj)
+    wid = c.key(obj, "id", lambda v: isinstance(v, str) and v.strip() != "",
+                "the coach's own id, copied verbatim")
+    c.key(obj, "word", lambda v: isinstance(v, str) and v.strip() != "", "a non-empty string")
+    c.key(obj, "sentence", lambda v: isinstance(v, str) and v.strip() != "",
+          "the sentence copied verbatim from words.json")
+    at = c.ts(obj, "at")
+    c.key(obj, "source", lambda v: v in SAYIT_SCORE_SOURCES,
+          "one of " + ", ".join(SAYIT_SCORE_SOURCES))
+    c.key(obj, "locale", lambda v: v in SAYIT_SCORE_LOCALES,
+          "one of " + ", ".join(SAYIT_SCORE_LOCALES))
+    scores = []
+    for k in ("accuracy", "fluency", "completeness", "pron"):
+        scores.append(c.key(obj, k, lambda v: v is None or is_score(v), "a number 0-100 or null"))
+    if all(v is None for v in scores) and all(k in obj for k in
+                                              ("accuracy", "fluency", "completeness", "pron")):
+        # A file with no number in it is not a score; the app writes none at all
+        # in that case and leaves the attempt for the coach.
+        c.bad("at least one of accuracy, fluency, completeness, pron must be a number: "
+              "an attempt with no usable score gets no file")
+    c.key(obj, "flagged", lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
+          "a list of strings")
+    af = c.key(obj, "attempt_file", lambda v: isinstance(v, str) and v.endswith(".json"),
+               "the sidecar's file name")
+    if isinstance(af, str) and af != fname:
+        c.bad("attempt_file '%s' must be this file's own name: the recording, the sidecar "
+              "and the score share one stem" % af)
+    if m and isinstance(wid, str) and m.group(2) != safe_id(wid):
+        c.bad("file name says id '%s' but the score's id spells safely as '%s'"
+              % (m.group(2), safe_id(wid)))
+    if m and isinstance(obj.get("at"), str) and at:
+        want = basic_form(obj["at"])
+        if want and want != m.group(1):
+            c.bad("file name timestamp %s does not match at %s" % (m.group(1), obj["at"]))
+
+
+def check_scores_dir(sdir, report, attempts_dir=None):
+    """Every score file, and whether the attempt it names is still beside it."""
+    count = 0
+    for fname in sorted(os.listdir(sdir)):
+        path = os.path.join(sdir, fname)
+        if not os.path.isfile(path):
+            continue
+        if not fname.endswith(".json"):
+            report.bad("sayit/scores/" + fname, "unexpected file in sayit/scores/ "
+                                                "(only <ts>_<id>.json)")
+            continue
+        count += 1
+        obj = load_json_file(path, report)
+        if obj is None:
+            continue
+        check_sayit_score(obj, fname, report)
+        if attempts_dir and not os.path.isfile(os.path.join(attempts_dir, fname)):
+            # Not a violation: the coach may archive attempts on Drive, and a
+            # score still syncing down can arrive before its sidecar.
+            report.note("sayit/scores/%s has no sidecar beside it in sayit/attempts/" % fname)
+    report.note("%d Say-it score file(s) checked" % count)
+
+
 def check_sayit_zip(path, report):
     """sayit.zip: only words.json, results.json and clips/<id>.ogg, no path tricks."""
     c = Checker(report, "sayit.zip")
@@ -764,6 +844,13 @@ def validate_folder(folder, catalog=None):
         check_attempts_dir(adir, report)
     else:
         report.note("no sayit/attempts/ folder")
+
+    scdir = os.path.join(folder, "sayit", "scores")
+    if os.path.isdir(scdir):
+        check_scores_dir(scdir, report, attempts_dir=adir)
+    else:
+        report.note("no sayit/scores/ folder (the phone scored nothing yet, "
+                    "or has no Azure key of its own)")
 
     sdir = os.path.join(folder, "sessions")
     if os.path.isdir(sdir):
@@ -935,7 +1022,7 @@ def selftest():
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
         rep = validate_folder(empty)
-        assert rep.violations == [] and len(rep.notes) == 6, (rep.violations, rep.notes)
+        assert rep.violations == [] and len(rep.notes) == 7, (rep.violations, rep.notes)
 
         cases = [
             (lambda p, s, x: x.__setitem__("version", 2), "'version' must be the integer 1"),
@@ -1036,7 +1123,8 @@ def selftest():
                     "started": "2026-09-13T18:04:02Z", "duration_s": 4.2,
                     "app_version": "0.2.0", "clip_played": 2}
 
-        def _say_folder(root, words, results, sidecars, clips=("clips/imperialist.ogg",)):
+        def _say_folder(root, words, results, sidecars, clips=("clips/imperialist.ogg",),
+                        scores=()):
             os.makedirs(root, exist_ok=True)
             with zipfile.ZipFile(os.path.join(root, "sayit.zip"), "w") as z:
                 if words is not None:
@@ -1052,6 +1140,12 @@ def selftest():
                     json.dump(obj, f)
                 with open(os.path.join(adir, name[:-len(".json")] + ".m4a"), "wb") as f:
                     f.write(b"m4a")
+            if scores:
+                cdir = os.path.join(root, "sayit", "scores")
+                os.makedirs(cdir, exist_ok=True)
+                for name, obj in scores:
+                    with open(os.path.join(cdir, name), "w", encoding="utf-8") as f:
+                        json.dump(obj, f)
             return root
 
         say = _say_folder(os.path.join(tmp, "say"), _words(), _results(),
@@ -1059,8 +1153,9 @@ def selftest():
         rep = validate_folder(say)
         assert rep.violations == [], rep.violations
 
-        def _say_expect(name, words, results, sidecars, fragment, clips=("clips/imperialist.ogg",)):
-            root = _say_folder(os.path.join(tmp, name), words, results, sidecars, clips)
+        def _say_expect(name, words, results, sidecars, fragment, clips=("clips/imperialist.ogg",),
+                        scores=()):
+            root = _say_folder(os.path.join(tmp, name), words, results, sidecars, clips, scores)
             r = validate_folder(root)
             assert any(fragment in v for v in r.violations), (fragment, r.violations)
 
@@ -1148,6 +1243,74 @@ def selftest():
         r = validate_folder(cleaned)
         assert r.violations == [], r.violations
         assert any("no recording beside it" in n for n in r.notes), r.notes
+
+        # ---- Say it: the phone's own score files ---------------------------
+        def _score(**over):
+            obj = {"version": 1, "id": "imperialist", "word": "imperialist",
+                   "sentence": "A sentence he actually read out loud.",
+                   "at": "2026-09-13T18:04:02Z",
+                   "source": "phone-azure", "locale": "en-GB",
+                   "accuracy": 71.0, "fluency": 64.0, "completeness": 100.0, "pron": 68.0,
+                   "flagged": ["imperialist"],
+                   "attempt_file": "20260913T180402Z_imperialist.json"}
+            obj.update(over)
+            return obj
+
+        SCORE_NAME = "20260913T180402Z_imperialist.json"
+        scored = _say_folder(os.path.join(tmp, "say-scored"), _words(), _results(),
+                             [(SCORE_NAME, _sidecar())], scores=[(SCORE_NAME, _score())])
+        r = validate_folder(scored)
+        assert r.violations == [], r.violations
+        assert any("1 Say-it score file(s) checked" in n for n in r.notes), r.notes
+
+        # a dimension Azure did not return is null, never a stand-in 0
+        r = validate_folder(_say_folder(
+            os.path.join(tmp, "say-null"), _words(), _results(), [(SCORE_NAME, _sidecar())],
+            scores=[(SCORE_NAME, _score(fluency=None, completeness=None))]))
+        assert r.violations == [], r.violations
+        # ...but a file with no number at all should never have been written
+        _say_expect("say-empty-score", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "at least one of accuracy",
+                    scores=[(SCORE_NAME, _score(accuracy=None, fluency=None,
+                                                completeness=None, pron=None))])
+        # the three names of one attempt must agree
+        _say_expect("say-score-other", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "attempt_file '20260913T180402Z_other.json' must be this file's own name",
+                    scores=[(SCORE_NAME, _score(attempt_file="20260913T180402Z_other.json"))])
+        _say_expect("say-score-id", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "file name says id 'other'",
+                    scores=[("20260913T180402Z_other.json",
+                             _score(attempt_file="20260913T180402Z_other.json"))])
+        _say_expect("say-score-ts", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "does not match at",
+                    scores=[(SCORE_NAME, _score(at="2026-09-13T18:04:03Z"))])
+        _say_expect("say-score-name", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "file name must look like",
+                    scores=[("today.json", _score(attempt_file="today.json"))])
+        # only the phone writes these, and only in en-GB
+        _say_expect("say-score-source", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "'source' must be", scores=[(SCORE_NAME, _score(source="guessed"))])
+        _say_expect("say-score-locale", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "'locale' must be", scores=[(SCORE_NAME, _score(locale="en-US"))])
+        _say_expect("say-score-range", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "'accuracy' must be", scores=[(SCORE_NAME, _score(accuracy=140.0))])
+        # nothing but <ts>_<id>.json belongs in sayit/scores/ — a coach file
+        # name least of all, and it is refused on its name before anything else
+        _say_expect("say-score-coachname", _words(), _results(), [(SCORE_NAME, _sidecar())],
+                    "file name must look like",
+                    scores=[(SCORE_NAME, _score()), ("results.json", _score(attempt_file="results.json"))])
+        stray = _say_folder(os.path.join(tmp, "say-score-stray"), _words(), _results(),
+                            [(SCORE_NAME, _sidecar())], scores=[(SCORE_NAME, _score())])
+        with open(os.path.join(stray, "sayit", "scores", "notes.txt"), "w") as f:
+            f.write("x")
+        r = validate_folder(stray)
+        assert any("unexpected file in sayit/scores/" in v for v in r.violations), r.violations
+        # a score whose sidecar has been archived is a note, not a violation
+        lone = _say_folder(os.path.join(tmp, "say-score-lone"), _words(), _results(), [],
+                           scores=[(SCORE_NAME, _score())])
+        r = validate_folder(lone)
+        assert r.violations == [], r.violations
+        assert any("has no sidecar beside it" in n for n in r.notes), r.notes
 
     # the committed examples must pass, with the catalog when it is there
     examples = os.path.join(repo, "data", "examples")
