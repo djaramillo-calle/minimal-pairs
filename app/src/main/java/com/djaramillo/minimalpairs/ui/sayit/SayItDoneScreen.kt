@@ -76,8 +76,14 @@ fun SayItDoneScreen(ui: SayItSentenceUi, onHome: () -> Unit) {
                         )
                     }
                     // Today's instant score, next to the coach's, so a session
-                    // that moved a word shows it while he is still in it.
-                    val todayPron = row.today?.assessment?.pron ?: row.today?.assessment?.accuracy
+                    // that moved a word shows it while he is still in it. It is
+                    // Azure's overall PronScore and nothing else: standing
+                    // another dimension in for a missing one would put a number
+                    // in the overall column that is not the overall score, and
+                    // would disagree with both the score file and the sentence
+                    // screen, which write and draw that dimension as absent.
+                    val today = ui.todayScores[row.id]
+                    val todayPron = today?.assessment?.pron
                     if (row.recorded) {
                         Text(
                             when {

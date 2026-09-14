@@ -16,6 +16,8 @@ import com.djaramillo.minimalpairs.domain.model.Plan
 import com.djaramillo.minimalpairs.domain.model.SayItResults
 import com.djaramillo.minimalpairs.domain.model.SessionRecord
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
@@ -482,6 +484,21 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
 
     /**
+     * One writer at a time in `sayit/`.
+     *
+     * Two assessments can finish at once — the drill deliberately lets a second
+     * take be recorded while the first is still being scored — and the first
+     * thing each one does is make `sayit/scores/` if it is not there. A
+     * `DocumentsProvider` does not hand back the directory that already exists:
+     * it makes a second one called `scores (1)`, and the score written into it
+     * is reported as saved and never reaches the coach. The same goes for the
+     * two halves of an attempt against the sweep. So every write and every
+     * delete under `sayit/` takes this lock; they are all short, and the one
+     * long step (copying the recording) is bounded by the 20 s cap.
+     */
+    private val sayItLock = Mutex()
+
+    /**
      * Size and modification time of `sayit.zip`, so a refresh can tell it has
      * not changed. [readable] is false when the folder would not answer at
      * all, which is a broken zip and not the same thing as one the coach has
@@ -581,42 +598,54 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * attempt already in the folder may be one the coach has not scored yet.
      */
     suspend fun writeSayItAttempt(audio: File, sidecar: AttemptSidecar): String? = withContext(Dispatchers.IO) {
+        sayItLock.withLock { writeAttemptLocked(audio, sidecar) }
+    }
+
+    private fun writeAttemptLocked(audio: File, sidecar: AttemptSidecar): String? {
         val id = sidecar.id
-        if (!SayItNames.isPracticableId(id)) return@withContext null
-        val instant = TimeUtil.parseIso(sidecar.started) ?: return@withContext null
+        if (!SayItNames.isPracticableId(id)) return null
+        val instant = TimeUtil.parseIso(sidecar.started) ?: return null
         val ts = TimeUtil.sessionIdFrom(instant)
         val audioName = SayItNames.audioName(ts, id)
         val sidecarName = SayItNames.sidecarName(ts, id)
         val text = AppJson.writer.encodeToString(AttemptSidecar.serializer(), sidecar)
         val readable = try { audio.isFile && audio.length() > 0L } catch (e: SecurityException) { false }
-        if (!readable) return@withContext null
+        if (!readable) return null
         var written: DocumentFile? = null
         try {
-            val dir = attemptsDir(create = true) ?: return@withContext null
+            val dir = attemptsDir(create = true) ?: return null
             // One listing answers both halves of the stem: the folder is large
             // and every extra walk of it is time the owner spends waiting.
             val present = childUris(dir)
-            if (audioName in present || sidecarName in present) return@withContext null
-            val audioDoc = dir.createFile(MIME_BINARY, audioName) ?: return@withContext null
+            if (audioName in present || sidecarName in present) return null
+            val audioDoc = dir.createFile(MIME_BINARY, audioName) ?: return null
             written = audioDoc
+            // A provider that renamed the document around a collision has not
+            // written the attempt: the coach pairs by stem, and `x (1).m4a`
+            // belongs to no sidecar.
+            if (audioDoc.name != null && audioDoc.name != audioName) {
+                audioDoc.delete()
+                return null
+            }
             if (!copyInto(audioDoc.uri, audio)) {
                 audioDoc.delete()
-                return@withContext null
+                return null
             }
             val sidecarDoc = dir.createFile(MIME_BINARY, sidecarName)
-            if (sidecarDoc == null || !writeText(sidecarDoc.uri, text)) {
+            val named = sidecarDoc != null && (sidecarDoc.name == null || sidecarDoc.name == sidecarName)
+            if (!named || !writeText(sidecarDoc!!.uri, text)) {
                 sidecarDoc?.delete()
                 audioDoc.delete()
-                return@withContext null
+                return null
             }
-            SayItNames.stem(ts, id)
+            return SayItNames.stem(ts, id)
         } catch (e: Exception) {
             try { written?.delete() } catch (e2: Exception) {
                 // If the audio will not go now, the orphan half of
                 // [sweepSayItAttempts] takes it later: audio with no sidecar
                 // is the one thing no other rule can ever collect.
             }
-            null
+            return null
         }
     }
 
@@ -642,22 +671,36 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun writeSayItScore(fileName: String, json: String): Boolean = withContext(Dispatchers.IO) {
         if (!SayItNames.isAttemptSidecar(fileName)) return@withContext false
-        try {
-            val dir = sayItChild(FolderLayout.SAYIT_SCORES, create = true) ?: return@withContext false
-            val existing = findChild(dir, fileName)
-            if (existing != null && !isEmptyFile(existing)) return@withContext false
-            val doc = existing ?: dir.createFile(MIME_BINARY, fileName) ?: return@withContext false
-            if (writeText(doc.uri, json)) {
-                true
-            } else {
-                // Nothing half-written is left for the coach to read: the
-                // document goes, and the attempt waits for the cloud as though
-                // the phone had never scored it.
-                try { doc.delete() } catch (e: Exception) { /* the sweep never touches scores; a zero-byte file is the worst case */ }
+        sayItLock.withLock {
+            try {
+                val dir = sayItChild(FolderLayout.SAYIT_SCORES, create = true) ?: return@withLock false
+                // One listing, not one round trip per file: `sayit/scores/`
+                // grows for ever and is never swept, so a per-child query would
+                // make the learner wait longer for every score than for the one
+                // before it.
+                val existingUri = childUris(dir)[fileName]
+                val existing = existingUri?.let { DocumentFile.fromSingleUri(app, it) }
+                if (existing != null && !isEmptyFile(existing)) return@withLock false
+                val doc = existing ?: dir.createFile(MIME_BINARY, fileName) ?: return@withLock false
+                if (doc.name != null && doc.name != fileName) {
+                    // The provider renamed it around a collision. That document
+                    // is not the attempt's score and the coach would never join
+                    // it; drop it rather than report a save.
+                    try { doc.delete() } catch (e: Exception) { /* nothing more to do about it */ }
+                    return@withLock false
+                }
+                if (writeText(doc.uri, json)) {
+                    true
+                } else {
+                    // Nothing half-written is left for the coach to read: the
+                    // document goes, and the attempt waits for the cloud as
+                    // though the phone had never scored it.
+                    try { doc.delete() } catch (e: Exception) { /* a zero-byte file is the worst case */ }
+                    false
+                }
+            } catch (e: Exception) {
                 false
             }
-        } catch (e: Exception) {
-            false
         }
     }
 
@@ -679,9 +722,14 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      */
     suspend fun sweepSayItAttempts(results: SayItResults?, now: java.time.Instant): Int? =
         withContext(Dispatchers.IO) {
+            sayItLock.withLock { sweepLocked(results, now) }
+        }
+
+    private fun sweepLocked(results: SayItResults?, now: java.time.Instant): Int? {
+        run {
             try {
-                if (root() == null) return@withContext null
-                val dir = attemptsDir(create = false) ?: return@withContext 0
+                if (root() == null) return null
+                val dir = attemptsDir(create = false) ?: return 0
                 val present = childUris(dir)
                 val names = present.keys.toList()
                 var removed = 0
@@ -692,11 +740,12 @@ class DataFolder(context: Context, private val prefs: Prefs) {
                     val gone = try { DocumentsContract.deleteDocument(resolver, uri) } catch (e: Exception) { false }
                     if (gone) removed++
                 }
-                removed
+                return removed
             } catch (e: Exception) {
-                null
+                return null
             }
         }
+    }
 
     // ---- Say it helpers -------------------------------------------------
 
@@ -728,14 +777,30 @@ class DataFolder(context: Context, private val prefs: Prefs) {
         val root = root()
         val sayit = if (root == null) null else {
             findChild(root, FolderLayout.SAYIT)?.takeIf { it.isDirectory }
-                ?: if (create) root.createDirectory(FolderLayout.SAYIT) else null
+                ?: if (create) madeDirectory(root, FolderLayout.SAYIT) else null
         }
         if (sayit == null) null else {
             findChild(sayit, name)?.takeIf { it.isDirectory }
-                ?: if (create) sayit.createDirectory(name) else null
+                ?: if (create) madeDirectory(sayit, name) else null
         }
     } catch (e: Exception) {
         null
+    }
+
+    /**
+     * Make [name] under [parent], or nothing.
+     *
+     * A `DocumentsProvider` asked for a directory that already exists makes a
+     * second one beside it — `scores (1)` — rather than returning the first.
+     * Everything the app then writes into it syncs to a folder the coach does
+     * not read, and the app reports it as saved. So the name is checked, and a
+     * renamed directory is dropped and the real one looked up instead.
+     */
+    private fun madeDirectory(parent: DocumentFile, name: String): DocumentFile? {
+        val made = try { parent.createDirectory(name) } catch (e: Exception) { null } ?: return null
+        if (made.name == null || made.name == name) return made
+        try { made.delete() } catch (e: Exception) { /* an empty stray folder is the worst case */ }
+        return findChild(parent, name)?.takeIf { it.isDirectory }
     }
 
     /** Every name in `sayit/attempts/`, listed once; empty when the folder is unavailable. */

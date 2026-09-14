@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -73,14 +74,15 @@ data class SayItTodayScore(
 )
 
 /**
- * One line of the end-of-run summary: what was practised, the last score the
- * cloud coach already had for it, and today's own score beside it so movement
- * inside one sitting is visible.
+ * One line of the end-of-run summary: what was practised and the last score the
+ * cloud coach already had for it.
  *
  * [lastScore] is whatever `results.json` held when the run opened — the coach's
- * history, which the app never writes. [today] is this sitting's instant score,
- * and it exists only when Azure actually returned one (docs/CONTRACT.md,
- * "`sayit/scores/`"): the app never estimates one locally.
+ * history, which the app never writes. Today's own score is **not** copied in
+ * here: an assessment outlives the word it belongs to, so the last word of a
+ * run is routinely still being scored when this page is built. It is looked up
+ * from [SayItSentenceUi.todayScores] as the page draws, which is a live map,
+ * and appears the moment Azure answers.
  */
 data class SayItDoneRow(
     val id: String,
@@ -89,7 +91,6 @@ data class SayItDoneRow(
     /** A recording of this word reached the folder during this run. */
     val recorded: Boolean,
     val lastScore: Double?,
-    val today: SayItTodayScore? = null,
 )
 
 /**
@@ -127,6 +128,13 @@ data class SayItSentenceUi(
     val scoreNote: SayItScoring.Unscored? = null,
     /** The score file reached `sayit/scores/`; false when there is a score that could not be written. */
     val scoreSaved: Boolean = false,
+    /**
+     * This sitting's scores so far, by word id, for the done page. It is
+     * refreshed as each assessment lands rather than snapshotted when the page
+     * is built, because the last word of a run is normally still being scored
+     * at that moment.
+     */
+    val todayScores: Map<String, SayItTodayScore> = emptyMap(),
     /** `RECORD_AUDIO` was refused: the mode degrades to reading along. */
     val micDenied: Boolean = false,
     val notice: SayItNotice? = null,
@@ -621,7 +629,9 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 SayItTodayScore(note = SayItScoring.Unscored.AZURE_ERROR, stem = stem)
             }
-            publish(word.id, result, false, forRun)
+            // Back to the main thread for the one line that touches the UI
+            // state, so every writer of it is still the same thread.
+            withContext(Dispatchers.Main) { publish(word.id, result, false, forRun) }
         }
     }
 
@@ -655,24 +665,36 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             if (newest != null && newest != result.stem) return
             todayScores[id] = result
         }
-        if (_ui.value.word?.id != id) return
-        _ui.value = _ui.value.copy(
-            scoring = scoring,
-            score = result?.assessment,
-            scoreNote = result?.note,
-            scoreSaved = result?.saved ?: false,
-        )
+        // One atomic read-modify-write, and the "is this still the word on
+        // screen?" test inside it: this is the only place that touches the UI
+        // state from a background thread, and a plain `copy` here would race
+        // Next, which is a tap away while the assessment is in flight.
+        _ui.update { ui ->
+            val refreshed = if (result == null) ui else ui.copy(todayScores = HashMap(todayScores))
+            if (ui.word?.id != id) {
+                refreshed
+            } else {
+                refreshed.copy(
+                    scoring = scoring,
+                    score = result?.assessment,
+                    scoreNote = result?.note,
+                    scoreSaved = result?.saved ?: false,
+                )
+            }
+        }
     }
 
     /** Show whatever this run already knows about the word now on screen. */
     private fun showScoreOf(word: SayItWord?) {
         val known = word?.let { todayScores[it.id] }
-        _ui.value = _ui.value.copy(
-            scoring = false,
-            score = known?.assessment,
-            scoreNote = known?.note,
-            scoreSaved = known?.saved ?: false,
-        )
+        _ui.update {
+            it.copy(
+                scoring = false,
+                score = known?.assessment,
+                scoreNote = known?.note,
+                scoreSaved = known?.saved ?: false,
+            )
+        }
     }
 
     // ---- moving on --------------------------------------------------------
@@ -706,7 +728,6 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
                     sentence = w.sentence,
                     recorded = w.id in recorded,
                     lastScore = SayItPlanner.lastScore(w.id, results),
-                    today = todayScores[w.id],
                 )
             },
         )
