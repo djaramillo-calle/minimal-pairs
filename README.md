@@ -58,7 +58,8 @@ Release; the app offers the download on first run. The release APK is about
   plainly — the recording is saved and the coach scores it at the next sync —
   and never makes a number up.
 - **Settings** – data folder picker and status, the coach plan (read-only), a
-  manual override, clip pack status and download, versions.
+  manual override, clip pack status, download and import, whether the pack has
+  been saved to the data folder, versions.
 
 ## Install on the phone (Android 15)
 
@@ -78,10 +79,14 @@ app, so nothing is lost. The release notes say which key signed each build.
 
 - The app asks for its data folder. Pick, or create, `Documents/MinimalPairs`
   and confirm. The choice is remembered.
-- If the build carries only part of the clip pack (the release notes say
-  which contrasts are bundled, or "placeholder"), Settings offers to download
-  `clips.zip` from the newest release that has one. This needs a network
-  connection once; after that the app is offline. The app only keeps a
+- If the data folder already holds a `clips.zip` for this catalog — because
+  this phone rendered the pack once before and the app saved it there (below) —
+  the app installs it by itself, in the background, with no download and no
+  Azure call. Nothing to pick, nothing to tap.
+- Otherwise, if the build carries only part of the clip pack (the release notes
+  say which contrasts are bundled, or "placeholder"), Settings offers to
+  download `clips.zip` from the newest release that has one. This needs a
+  network connection once; after that the app is offline. The app only keeps a
   downloaded pack that is complete and covers its own catalog.
 - No release has a pack yet (the repository has no Azure secrets)? Two ways:
   Settings → "Azure Speech" lets you paste your own Azure Speech region and
@@ -112,6 +117,19 @@ happens to the phone. The free F0 tier covers both uses comfortably.
    cancel and continue later: finished words are kept, the heaviest contrasts
    are rendered first and become drillable as soon as their words are in.
 
+**You only ever have to do this once.** As soon as the app holds a complete
+pack it saves it to the data folder as `clips.zip` (~60 MB), by itself, in the
+background, once per catalog version — and a fresh install picks it up from
+there instead of rendering again. The rendered pack itself lives in the app's
+private storage, which Android deletes when the app is uninstalled; the folder
+copy is what survives that. Settings shows the save happening and says plainly
+if it failed. Rendering is never automatic: it only ever happens when you tap
+that button.
+
+The one cost is that your Autosync mirrors those 60 MB to Drive, once. That is
+the trade for not spending some 70,000 characters of the free tier's monthly
+allowance — and half an hour of your evening — on every reinstall.
+
 The key is stored only in the app's private preferences on the phone (the
 app opts out of Android backup), is sent only to
 `<region>.tts.speech.microsoft.com` (rendering) and
@@ -132,9 +150,12 @@ settings folder:
 | Autosync | on |
 
 The app writes `state.json`, `catalog-version.txt`, one file per session under
-`sessions/`, and for **Say it** its recordings under `sayit/attempts/` plus one
-immutable score file per scored attempt under `sayit/scores/`; the coach writes
-`plan.json` and `sayit.zip`. Nothing else goes through the folder. Details:
+`sessions/`, the clip pack as `clips.zip` once it has a complete one, and for
+**Say it** its recordings under `sayit/attempts/` plus one immutable score file
+per scored attempt under `sayit/scores/`; the coach writes `plan.json` and
+`sayit.zip` and nothing else. Nothing else goes through the folder. `clips.zip`
+is by far the largest of them (~60 MB) and is written once per catalog version;
+everything else is a few kilobytes. Details:
 [`docs/CONTRACT.md`](docs/CONTRACT.md).
 
 ## How the coach tunes it

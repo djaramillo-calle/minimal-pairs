@@ -11,6 +11,7 @@ Documents/MinimalPairs/
 ├── plan.json               written by the COACH, read by the app (never written by the app)
 ├── state.json              written by the app after every session, read by the coach
 ├── catalog-version.txt     written by the app on every launch: the catalog the results refer to
+├── clips.zip               written by the APP, read by the coach (never written by the coach) — the rendered clip pack, ~60 MB
 ├── sessions/
 │   ├── 20260911T070211Z.json   one file per completed session, append-only, never rewritten
 │   └── ...
@@ -28,10 +29,11 @@ Documents/MinimalPairs/
 Rules that never change:
 
 - The app never writes `plan.json` or `sayit.zip`. The coach writes only those
-  two and never anything else. In particular the app never writes `results.json`
-  (which lives inside `sayit.zip`): the rolling Say-it history is the coach's,
-  and a score the phone produced is a new immutable file of its own, never an
-  edit to a shared one.
+  two and never anything else — `clips.zip` included: it is the app's, and the
+  coach reads it at most (there is no reason for it to). In particular the app
+  never writes `results.json` (which lives inside `sayit.zip`): the rolling
+  Say-it history is the coach's, and a score the phone produced is a new
+  immutable file of its own, never an edit to a shared one.
 - Session files are immutable once written. The app never edits, renames or
   deletes them. The coach may archive old ones on Drive; the app does not care:
   a session that reached the folder once is not put back when it later
@@ -481,6 +483,45 @@ One line, the catalog version string bundled in the installed app
 (`2026-09-11.2`). Written on every launch. The coach uses it to know which pair
 set the state and sessions refer to; pair ids are stable across catalog versions
 as long as both words and the contrast stay the same.
+
+## `clips.zip`
+
+The rendered clip pack, about 60 MB: `index.json` plus `<voice>/<word>.webm`,
+the same archive the GitHub Release carries and the same one Settings →
+"Import clips.zip…" takes. **Written by the app, read by the coach.** The coach
+never writes it, and nothing in the app's own handling of it touches
+`plan.json`, `sayit.zip` or anything under `sayit/`.
+
+It is here for one reason. The pack lives in the app's private storage, which
+Android wipes when the app is uninstalled, and rendering it again is 1941 words
+× 6 voices = 11,646 clips, roughly 70,000 characters of neural TTS — a sixth of
+the free Azure tier's monthly allowance, and half an hour on the phone. (The
+pack the release carries is larger still: 2521 words, 15,126 clips, about
+82,000 characters, because it renders the production-only words too.) It had
+been paid for twice before this file existed. Now:
+
+- Whenever the app holds a **complete** pack and the folder has no `clips.zip`
+  for the installed catalog, the app writes one: in the background, at launch,
+  without asking, once per catalog version. A partial or cancelled render never
+  produces one — an archive that cannot be installed is worse than none,
+  because it looks like the pack is safe when it is not.
+- When the app has **no** usable pack (a fresh install, or only the bundled
+  subset) and the folder has a `clips.zip` whose `index.json` fits the
+  installed catalog, it is installed from there, with the same validation and
+  the same atomic swap as a download and no Azure call at all. A pack for a
+  catalog whose words it does not cover is refused and left alone.
+- Rendering is never automatic. It stays the deliberate Settings action it was.
+
+The file is written under `clips.zip.tmp` and moved into place only once every
+byte is there, so a crash, a kill or a sync half way through never leaves a
+truncated `clips.zip` behind; a leftover `.tmp` is dropped by the next export.
+
+The size is the trade, and it is deliberate: the folder is mirrored to Google
+Drive by the learner's Autosync, so `clips.zip` costs one upload of ~60 MB and
+the same again on any device that syncs the folder down. That is paid once per
+catalog version, against some 70,000 characters of TTS and half an hour of the
+learner's evening per reinstall. Nothing else about the pack goes in the
+folder: one file, no manifest beside it, no per-voice directories.
 
 ## Coach side
 
