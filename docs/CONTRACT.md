@@ -428,12 +428,24 @@ edited, never a shared mutable file: the coach reads these, keeps the history in
 | `flagged` | the words of `sentence` Azure marked `Mispronunciation` or `Omission`, in its order, each once. An `Insertion` (a word he said that is not in the sentence) is not flagged: it is not one of the coach's words |
 | `attempt_file` | the sidecar beside the recording, `<ts>_<id>.json` — the same stem as this file's own name |
 
-The assessment is **scripted**: `ReferenceText` is `sentence` verbatim,
-`GradingSystem` `HundredMark`, `Granularity` `Phoneme`, `Dimension`
-`Comprehensive`, `EnableMiscue` **true** (so a word he skipped comes back as an
-`Omission` rather than quietly lowering nothing), `PhonemeAlphabet` `IPA`,
-language `en-GB`. The recording is sent as PCM16 mono 16 kHz — the `.m4a` in
-the folder is decoded and resampled for the request and is never itself changed.
+The assessment is **scripted**, through the Speech-to-text REST API for short
+audio: `ReferenceText` is `sentence` verbatim, `GradingSystem` `HundredMark`,
+`Granularity` `Phoneme`, `Dimension` `Comprehensive`, `EnableMiscue` `"True"`
+(so a word he skipped comes back as an `Omission` rather than quietly lowering
+nothing), language `en-GB`, `format=detailed`. Only those documented parameters
+are sent.
+
+The recording goes as `audio/wav; codecs=audio/pcm; samplerate=16000` — PCM16
+mono 16 kHz, the one WAV shape that endpoint accepts. The `.m4a` in the folder
+is decoded and resampled for the request and is never itself changed, so the
+declared rate can never disagree with the samples. The 20 s recording cap and
+its 0.4 s of padding stay well inside the endpoint's 30 s limit for
+pronunciation assessment.
+
+The four scores are read from `NBest[0]` and the word errors from
+`NBest[0].Words[]`, in either the flat shape the REST API returns or the nested
+`PronunciationAssessment` shape the SDK uses, so a change of shape produces
+no score rather than a wrong one.
 
 The three file names of one attempt are built from one string, so the coach
 joins them by stem and never parses an id out of a name: `<ts>_<id>.m4a` and

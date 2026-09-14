@@ -77,7 +77,12 @@ object SayItScoring {
         /** Azure answered without a usable pronunciation assessment in it. */
         NOT_ASSESSED,
 
-        /** The attempt itself did not reach the folder, so there is nothing a score could belong to. */
+        /**
+         * There is no attempt in the folder this score could belong to: the
+         * write did not land, or the stem handed over does not describe this
+         * word at this second, which is the same thing as far as the coach is
+         * concerned — it joins the three files by stem.
+         */
         NO_ATTEMPT,
     }
 
@@ -126,8 +131,12 @@ object SayItScoring {
             put("GradingSystem", "HundredMark")
             put("Granularity", "Phoneme")
             put("Dimension", "Comprehensive")
-            put("EnableMiscue", true)
-            put("PhonemeAlphabet", "IPA")
+            // The REST API for short audio documents this value as the string
+            // "True", and its own worked example sends the flags as strings.
+            // Nothing here reads a phoneme symbol, so PhonemeAlphabet — an SDK
+            // setting the REST parameter table does not list — is not sent:
+            // only the documented parameters go in the header.
+            put("EnableMiscue", "True")
         }
         return compact.encodeToString(JsonObject.serializer(), obj)
     }
@@ -158,12 +167,11 @@ object SayItScoring {
         val root = rootOf(body) ?: return null
         if (root["RecognitionStatus"]?.jsonPrimitive?.content != STATUS_SUCCESS) return null
         val best = (root["NBest"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return null
-        val pa = best["PronunciationAssessment"] as? JsonObject ?: return null
         val assessment = Assessment(
-            accuracy = score(pa["AccuracyScore"]),
-            fluency = score(pa["FluencyScore"]),
-            completeness = score(pa["CompletenessScore"]),
-            pron = score(pa["PronScore"]),
+            accuracy = score(scoreOf(best, "AccuracyScore")),
+            fluency = score(scoreOf(best, "FluencyScore")),
+            completeness = score(scoreOf(best, "CompletenessScore")),
+            pron = score(scoreOf(best, "PronScore")),
             flagged = flaggedWords(best),
         )
         // An assessment with no number in it is not a score. Writing it would
@@ -187,6 +195,22 @@ object SayItScoring {
     }
 
     /**
+     * One assessment value, wherever this endpoint put it.
+     *
+     * The REST API for short audio returns the scores as plain fields of
+     * `NBest[0]` (and `ErrorType` as a plain field of each `Words[]` entry);
+     * the Speech SDK and the newer transcription APIs nest the same values
+     * under a `PronunciationAssessment` object. Both shapes are read, nested
+     * first, so the drill does not quietly stop scoring the day the endpoint's
+     * answer changes shape — a silence that would look exactly like a phone
+     * with no key.
+     */
+    private fun scoreOf(owner: JsonObject, name: String): kotlinx.serialization.json.JsonElement? {
+        val nested = (owner["PronunciationAssessment"] as? JsonObject)?.get(name)
+        return nested ?: owner[name]
+    }
+
+    /**
      * The words Azure marked wrong, in the order it returned them and each one
      * once. `Words[].Word` is Azure's own spelling of the reference word, which
      * is what the coach's `results.json` `flagged` list holds too.
@@ -196,8 +220,7 @@ object SayItScoring {
         val out = LinkedHashSet<String>()
         for (el in words) {
             val w = el as? JsonObject ?: continue
-            val pa = w["PronunciationAssessment"] as? JsonObject
-            val error = pa?.get("ErrorType")?.jsonPrimitive?.content ?: ERROR_NONE
+            val error = scoreOf(w, "ErrorType")?.let { (it as? JsonPrimitive)?.content } ?: ERROR_NONE
             if (error !in WORD_ERRORS) continue
             val text = w["Word"]?.jsonPrimitive?.content?.trim().orEmpty()
             if (text.isNotEmpty()) out.add(text)
@@ -252,6 +275,16 @@ object SayItScoring {
         failure: Unscored? = null,
     ): Outcome {
         if (stem.isNullOrEmpty()) return Outcome.NotScored(Unscored.NO_ATTEMPT)
+        // The stem must be this word's, at this second. It always is — it comes
+        // straight back from the write, which built it from the sidecar this
+        // `startedIso` was taken from — and a mismatch would mean a score file
+        // naming an attempt that is not the one it describes, which is exactly
+        // what scripts/validate-contract.py refuses. So it is checked rather
+        // than assumed, and a mismatch scores nothing.
+        val at = TimeUtil.parseIso(startedIso) ?: return Outcome.NotScored(Unscored.NO_ATTEMPT)
+        if (stem != SayItNames.stem(SayItNames.stampOf(at), word.id)) {
+            return Outcome.NotScored(Unscored.NO_ATTEMPT)
+        }
         if (failure != null) return Outcome.NotScored(failure)
         if (body == null) return Outcome.NotScored(Unscored.AZURE_ERROR)
         val assessment = parse(body) ?: return Outcome.NotScored(unscoredReason(body))

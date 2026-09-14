@@ -37,24 +37,47 @@ class SayItScoringTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** A realistic `format=detailed` answer with a Comprehensive assessment in it. */
+    /**
+     * A `format=detailed` answer shaped exactly as the **REST API for short
+     * audio** documents it: the assessment scores are plain fields of
+     * `NBest[0]` and `ErrorType` a plain field of each word. This is the shape
+     * the app actually meets.
+     */
     private fun body(
         status: String = "Success",
         assessment: String? =
-            """"PronunciationAssessment": {"AccuracyScore": 71.0, "FluencyScore": 64.0,
-               "CompletenessScore": 100.0, "PronScore": 68.0},""",
+            """"AccuracyScore": 71.0, "FluencyScore": 64.0,
+               "CompletenessScore": 100.0, "PronScore": 68.0,""",
         words: String = """
-            {"Word": "this", "PronunciationAssessment": {"AccuracyScore": 95.0, "ErrorType": "None"}},
-            {"Word": "imperialist", "PronunciationAssessment": {"AccuracyScore": 40.0, "ErrorType": "Mispronunciation"}},
-            {"Word": "policies", "PronunciationAssessment": {"AccuracyScore": 0.0, "ErrorType": "Omission"}},
-            {"Word": "erm", "PronunciationAssessment": {"AccuracyScore": 0.0, "ErrorType": "Insertion"}}
+            {"Word": "this", "AccuracyScore": 95.0, "ErrorType": "None"},
+            {"Word": "imperialist", "AccuracyScore": 40.0, "ErrorType": "Mispronunciation"},
+            {"Word": "policies", "AccuracyScore": 0.0, "ErrorType": "Omission"},
+            {"Word": "erm", "AccuracyScore": 0.0, "ErrorType": "Insertion"}
         """,
     ): String = """
-        {"RecognitionStatus": "$status", "Offset": 300000, "Duration": 42000000,
+        {"RecognitionStatus": "$status", "Offset": 300000, "Duration": 42000000, "SNR": 38.7,
          "DisplayText": "${sentence.replace("\"", "")}",
-         "NBest": [{"Confidence": 0.93, "Lexical": "lexical text",
+         "NBest": [{"Confidence": 0.93, "Lexical": "lexical text", "ITN": "itn", "MaskedITN": "itn",
+           "Display": "display",
            ${assessment ?: ""}
            "Words": [$words]}]}
+    """.trimIndent()
+
+    /**
+     * The same answer in the **nested** shape the Speech SDK and the newer
+     * transcription APIs use. The app reads both, so an endpoint that changes
+     * shape does not silently stop scoring for ever.
+     */
+    private fun nestedBody(): String = """
+        {"RecognitionStatus": "Success",
+         "NBest": [{"Confidence": 0.93, "Lexical": "lexical text",
+           "PronunciationAssessment": {"AccuracyScore": 71.0, "FluencyScore": 64.0,
+             "CompletenessScore": 100.0, "PronScore": 68.0},
+           "Words": [
+             {"Word": "this", "PronunciationAssessment": {"AccuracyScore": 95.0, "ErrorType": "None"}},
+             {"Word": "imperialist", "PronunciationAssessment": {"AccuracyScore": 40.0, "ErrorType": "Mispronunciation"}},
+             {"Word": "policies", "PronunciationAssessment": {"AccuracyScore": 0.0, "ErrorType": "Omission"}},
+             {"Word": "erm", "PronunciationAssessment": {"AccuracyScore": 0.0, "ErrorType": "Insertion"}}]}]}
     """.trimIndent()
 
     // ---- the request ------------------------------------------------------
@@ -69,7 +92,13 @@ class SayItScoringTest {
         assertEquals("Phoneme", obj["Granularity"]!!.jsonPrimitive.content)
         assertEquals("Comprehensive", obj["Dimension"]!!.jsonPrimitive.content)
         // Miscue detection on: a skipped word must come back as an Omission.
-        assertEquals("true", obj["EnableMiscue"]!!.jsonPrimitive.content)
+        // The REST parameter table documents this as the string "True".
+        assertEquals("True", obj["EnableMiscue"]!!.jsonPrimitive.content)
+        // Only the parameters the REST API documents are sent.
+        assertEquals(
+            setOf("ReferenceText", "GradingSystem", "Granularity", "Dimension", "EnableMiscue"),
+            obj.keys,
+        )
     }
 
     @Test
@@ -104,12 +133,22 @@ class SayItScoringTest {
     }
 
     @Test
+    fun theNestedSdkShapeIsReadToo() {
+        val a = SayItScoring.parse(nestedBody())!!
+        assertEquals(71.0, a.accuracy!!, 0.001)
+        assertEquals(64.0, a.fluency!!, 0.001)
+        assertEquals(100.0, a.completeness!!, 0.001)
+        assertEquals(68.0, a.pron!!, 0.001)
+        assertEquals(listOf("imperialist", "policies"), a.flagged)
+    }
+
+    @Test
     fun aWordFlaggedTwiceIsListedOnce() {
         val a = SayItScoring.parse(
             body(
                 words = """
-                    {"Word": "imperialist", "PronunciationAssessment": {"ErrorType": "Mispronunciation"}},
-                    {"Word": "imperialist", "PronunciationAssessment": {"ErrorType": "Mispronunciation"}}
+                    {"Word": "imperialist", "ErrorType": "Mispronunciation"},
+                    {"Word": "imperialist", "ErrorType": "Mispronunciation"}
                 """,
             )
         )!!
@@ -118,9 +157,7 @@ class SayItScoringTest {
 
     @Test
     fun aCleanReadingFlagsNothing() {
-        val a = SayItScoring.parse(
-            body(words = """{"Word": "this", "PronunciationAssessment": {"ErrorType": "None"}}""")
-        )!!
+        val a = SayItScoring.parse(body(words = """{"Word": "this", "ErrorType": "None"}"""))!!
         assertTrue(a.flagged.isEmpty())
         assertFalse(a.empty)
     }
@@ -143,7 +180,7 @@ class SayItScoringTest {
 
     @Test
     fun anAssessmentWithNoUsableNumberIsNoScore() {
-        val text = body(assessment = """"PronunciationAssessment": {"AccuracyScore": "n/a"},""")
+        val text = body(assessment = """"AccuracyScore": "n/a",""")
         assertNull(SayItScoring.parse(text))
         assertEquals(SayItScoring.Unscored.NOT_ASSESSED, SayItScoring.unscoredReason(text))
     }
@@ -152,8 +189,8 @@ class SayItScoringTest {
     fun scoresOutsideZeroToAHundredAreDroppedNotClamped() {
         val a = SayItScoring.parse(
             body(
-                assessment = """"PronunciationAssessment": {"AccuracyScore": 71.0, "FluencyScore": -3.0,
-                   "CompletenessScore": 140.0, "PronScore": 68.0},"""
+                assessment = """"AccuracyScore": 71.0, "FluencyScore": -3.0,
+                   "CompletenessScore": 140.0, "PronScore": 68.0,"""
             )
         )!!
         assertEquals(71.0, a.accuracy!!, 0.001)
@@ -173,7 +210,7 @@ class SayItScoringTest {
     @Test
     fun scoresAreRoundedToOneDecimal() {
         val a = SayItScoring.parse(
-            body(assessment = """"PronunciationAssessment": {"AccuracyScore": 71.2666, "PronScore": 68.05},""")
+            body(assessment = """"AccuracyScore": 71.2666, "PronScore": 68.05,""")
         )!!
         assertEquals(71.3, a.accuracy!!, 0.0001)
         assertEquals(68.1, a.pron!!, 0.0001)
@@ -263,7 +300,7 @@ class SayItScoringTest {
             word,
             stem,
             started,
-            body(assessment = """"PronunciationAssessment": {"AccuracyScore": 71.0},"""),
+            body(assessment = """"AccuracyScore": 71.0,"""),
         ) as SayItScoring.Outcome.Scored
         val obj = json.parseToJsonElement(scored.json).jsonObject
         assertTrue(obj.containsKey("fluency"))
@@ -320,6 +357,17 @@ class SayItScoringTest {
     fun anUnreadableAnswerWritesNoScoreFile() {
         assertNotScored(SayItScoring.outcome(word, stem, started, "<html>502</html>"), SayItScoring.Unscored.NOT_ASSESSED)
         assertNotScored(SayItScoring.outcome(word, stem, started, null), SayItScoring.Unscored.AZURE_ERROR)
+    }
+
+    @Test
+    fun aStemThatDoesNotDescribeThisAttemptScoresNothing() {
+        // A score file that named an attempt it is not a score of would pass
+        // every other check and quietly attach a number to the wrong recording.
+        val otherSecond = SayItNames.stem("20260914T071003Z", word.id)
+        assertNotScored(SayItScoring.outcome(word, otherSecond, started, body()), SayItScoring.Unscored.NO_ATTEMPT)
+        val otherWord = SayItNames.stem("20260914T071002Z", "different")
+        assertNotScored(SayItScoring.outcome(word, otherWord, started, body()), SayItScoring.Unscored.NO_ATTEMPT)
+        assertNotScored(SayItScoring.outcome(word, stem, "not a timestamp", body()), SayItScoring.Unscored.NO_ATTEMPT)
     }
 
     @Test

@@ -626,11 +626,15 @@ class DataFolder(context: Context, private val prefs: Prefs) {
      * Returns true when it landed.
      *
      * Written once and never edited: a name already present is left exactly as
-     * it is and this returns false, because a score the coach may already have
-     * read is not ours to rewrite. The name is checked to be an attempt stem
-     * before anything is created, so nothing but `<ts>_<id>.json` can ever be
-     * made here — a caller cannot reach `sayit.zip`, `results.json` or any
-     * other name through this door.
+     * it is, because a score the coach may already have read is not ours to
+     * rewrite. The one exception is the same as `sessions/`' — an **empty**
+     * document, which is what an earlier write that failed after `createFile`
+     * leaves behind; that is not a score anybody could read, and filling it in
+     * is better than leaving a zero-byte file the coach reports as broken JSON
+     * for ever. The name is checked to be an attempt stem before anything is
+     * created, so nothing but `<ts>_<id>.json` can ever be made here — a caller
+     * cannot reach `sayit.zip`, `results.json` or any other name through this
+     * door.
      *
      * The file is only ever written after [writeSayItAttempt] returned the very
      * stem it carries, so a score never exists without the recording and the
@@ -640,12 +644,16 @@ class DataFolder(context: Context, private val prefs: Prefs) {
         if (!SayItNames.isAttemptSidecar(fileName)) return@withContext false
         try {
             val dir = sayItChild(FolderLayout.SAYIT_SCORES, create = true) ?: return@withContext false
-            if (fileName in childUris(dir)) return@withContext false
-            val doc = dir.createFile(MIME_BINARY, fileName) ?: return@withContext false
+            val existing = findChild(dir, fileName)
+            if (existing != null && !isEmptyFile(existing)) return@withContext false
+            val doc = existing ?: dir.createFile(MIME_BINARY, fileName) ?: return@withContext false
             if (writeText(doc.uri, json)) {
                 true
             } else {
-                try { doc.delete() } catch (e: Exception) { /* an empty file is better than a wrong one */ }
+                // Nothing half-written is left for the coach to read: the
+                // document goes, and the attempt waits for the cloud as though
+                // the phone had never scored it.
+                try { doc.delete() } catch (e: Exception) { /* the sweep never touches scores; a zero-byte file is the worst case */ }
                 false
             }
         } catch (e: Exception) {

@@ -451,8 +451,14 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             startedAt = began
             stopping = false
             // A new take supersedes the last one's verdict: whatever is on
-            // screen describes a recording that is about to be replaced.
-            current.word?.let { todayScores.remove(it.id) }
+            // screen describes a recording that is about to be replaced. The
+            // empty stem marks "a newer take is coming", so an assessment of
+            // the old one that lands first is dropped rather than shown
+            // against the new recording.
+            current.word?.let {
+                todayScores.remove(it.id)
+                latestStem[it.id] = ""
+            }
             _ui.value = _ui.value.copy(
                 recording = true,
                 notice = null,
@@ -538,13 +544,10 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         // The comparison is the point of the mode, so it starts by itself.
         onCompare()
         // Scoring comes after the attempt is safely in the folder and never
-        // instead of it: an attempt that did not land gets no score file, and a
-        // scoring that fails leaves the attempt exactly as it is.
-        if (stem == null) {
-            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_ATTEMPT), scoring = false)
-        } else {
-            startScoring(word, stem, take.file, sidecar.started)
-        }
+        // instead of it. An attempt that did not land is not scored and shows
+        // no score card at all: the record row already says it is not in the
+        // folder, and "saved, the coach will score it" would be a lie.
+        if (stem != null) startScoring(word, stem, take.file, sidecar.started)
     }
 
     // ---- scoring on the phone ---------------------------------------------
@@ -620,8 +623,9 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     private fun publish(id: String, result: SayItTodayScore?, scoring: Boolean) {
         if (result != null) {
             val newest = latestStem[id]
-            // A slow first take must not overwrite a faster second one.
-            if (result.stem.isNotEmpty() && newest != null && newest != result.stem) return
+            // A slow first take must not overwrite a faster second one, nor one
+            // that is still being recorded (marked with an empty stem).
+            if (newest != null && newest != result.stem) return
             todayScores[id] = result
         }
         if (_ui.value.word?.id != id) return
