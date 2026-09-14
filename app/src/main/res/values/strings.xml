@@ -138,11 +138,11 @@
     <string name="settings_pack_failed">Download failed: %1$s</string>
     <string name="settings_pack_source">Source: %1$s</string>
     <string name="settings_pack_import">Import clips.zip…</string>
-    <string name="settings_azure">Azure Speech (your own key)</string>
-    <string name="settings_azure_intro">Render the clip pack on this phone with your own Azure Speech resource (the free tier is enough: the whole pack is about 70,000 characters).</string>
-    <string name="settings_azure_region">Region (e.g. uksouth)</string>
-    <string name="settings_azure_key">Key</string>
-    <string name="settings_azure_key_stored">Key stored (leave empty to keep it)</string>
+    <string name="settings_azure">Azure Speech — this phone\'s own key</string>
+    <string name="settings_azure_intro">This phone uses its own Azure Speech resource for two things: scoring your Say it sentences the moment you record them, and rendering the clip pack. The free tier covers both (the whole pack is about 70,000 characters).</string>
+    <string name="settings_azure_region">Region of this phone\'s resource (e.g. uksouth)</string>
+    <string name="settings_azure_key">Key of this phone\'s resource</string>
+    <string name="settings_azure_key_stored">Key of this phone\'s resource stored (leave empty to keep it)</string>
     <string name="settings_azure_save">Save</string>
     <string name="settings_azure_test">Test</string>
     <string name="settings_azure_forget">Forget key</string>
@@ -162,8 +162,9 @@
     <string name="settings_azure_msg_testing">Testing…</string>
     <string name="settings_azure_msg_ok">Key works: %1$d British voices available, including the %2$d the app uses.</string>
     <string name="settings_azure_cancelling">Cancelling… (waiting for the requests in flight)</string>
-    <string name="settings_azure_privacy">The key is stored only in this app\'s private storage, excluded from Android backup and device transfer, and sent only to Azure.</string>
+    <string name="settings_azure_privacy">The key is stored only in this app\'s private storage, excluded from Android backup and device transfer, and sent only to Azure. It never reaches the data folder, a session file or a log.</string>
     <string name="settings_azure_msg_missing">Key works, but these voices are missing in this region: %1$s</string>
+    <string name="settings_azure_separate">Create a second, separate Azure Speech resource for this phone — its own key, its own region — and never paste the key your coach\'s pipeline uses. A free F0 resource is enough. Keeping them apart means a lost or shared phone can cost you this resource only, and the coach\'s pipeline keeps running whatever happens here.</string>
     <string name="settings_pack_import_hint">Import installs a clips.zip already on the phone (for example from the Releases page or Drive) with the same checks as a download.</string>
 
     <string name="settings_sayit">Say it</string>
@@ -227,11 +228,33 @@
     <string name="sayit_sentence_done_title">Say it done</string>
     <string name="sayit_sentence_done_practised">Words practised</string>
     <string name="sayit_sentence_done_nothing">Nothing was recorded this time.</string>
-    <string name="sayit_sentence_done_last_score">last score %1$d</string>
-    <string name="sayit_sentence_done_no_score">no score yet</string>
+    <string name="sayit_sentence_done_last_score">coach: last score %1$d</string>
+    <string name="sayit_sentence_done_no_score">coach: no score yet</string>
+    <string name="sayit_sentence_done_today">today on this phone: %1$d</string>
+    <string name="sayit_sentence_done_today_pending">today: saved, the coach will score it at the next sync</string>
     <string name="sayit_sentence_done_not_recorded">not recorded this time</string>
-    <string name="sayit_sentence_done_pending">The new scores arrive after the next sync: the cloud scores today\'s recordings and writes them back for the coach.</string>
+    <string name="sayit_sentence_done_pending">Anything this phone could not score is scored by the cloud after the next sync, and every attempt is checked there in any case.</string>
     <string name="sayit_sentence_done_tutor">A person should hear these</string>
     <string name="sayit_sentence_done_tutor_note">These words are still failing after three weeks, so they wait for a human ear rather than another recording.</string>
     <string name="sayit_sentence_done_swept">Tidied up: %1$d scored recording(s) older than 30 days were removed from the folder.</string>
+
+    <!-- Say it: the instant score this phone produces with the learner\'s own Azure key. -->
+    <string name="sayit_score_title">Your score</string>
+    <string name="sayit_score_scoring">Scoring this sentence…</string>
+    <string name="sayit_score_overall">Pronunciation</string>
+    <string name="sayit_score_accuracy">Accuracy</string>
+    <string name="sayit_score_fluency">Fluency</string>
+    <string name="sayit_score_completeness">Completeness</string>
+    <string name="sayit_score_value">%1$d</string>
+    <string name="sayit_score_none">—</string>
+    <string name="sayit_score_clean">No word was flagged in this reading.</string>
+    <string name="sayit_score_flagged">Still flagged: %1$s</string>
+    <string name="sayit_score_unsaved">The score could not be written to the folder, so the coach will score the recording again at the next sync.</string>
+    <string name="sayit_score_pending">Saved. The coach will score this at the next sync.</string>
+    <string name="sayit_score_why_no_key">No Azure key on this phone yet. Settings → Azure Speech scores your sentences straight away.</string>
+    <string name="sayit_score_why_no_audio">This recording could not be prepared for scoring on the phone.</string>
+    <string name="sayit_score_why_offline">No connection to Azure just now.</string>
+    <string name="sayit_score_why_azure">Azure could not score this attempt just now.</string>
+    <string name="sayit_score_why_not_heard">Azure heard no speech in this recording.</string>
+    <string name="sayit_score_why_not_assessed">Azure returned no usable score for this attempt.</string>
 </resources>

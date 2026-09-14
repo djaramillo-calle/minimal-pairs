@@ -35,8 +35,17 @@ class Prefs(context: Context) {
     }
 
     /**
-     * The learner's own Azure Speech credentials (Settings → Azure Speech).
-     * App-private storage, never backed up (`allowBackup=false`), never
+     * **This phone's own** Azure Speech credentials (Settings → Azure Speech):
+     * a second, separate resource created for the phone alone, used to render
+     * the clip pack and to score Say-it attempts on the spot
+     * (docs/CONTRACT.md, "`sayit/scores/`").
+     *
+     * It is never the key the coach's cloud pipeline runs on. That key stays in
+     * the cloud: a phone can be lost, lent or backed up, and the pipeline the
+     * whole coaching system depends on must not go with it. Settings says so
+     * under the field, and nothing in the app can tell the two apart, so the
+     * separation lives in that instruction and in keeping this value where it
+     * is — app-private storage, never backed up (`allowBackup=false`), never
      * written to the data folder, never logged.
      */
     var azureRegion: String?

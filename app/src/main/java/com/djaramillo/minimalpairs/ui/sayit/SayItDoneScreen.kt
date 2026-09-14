@@ -30,12 +30,15 @@ import kotlin.math.roundToInt
 
 /**
  * The end of a Say-it run: what was practised, the last score the cloud coach
- * already has for each word, and a plain statement that today's recordings are
- * scored after the next sync.
+ * already has for each word, and today's own score beside it, so movement
+ * inside one sitting is visible without waiting for a sync.
  *
- * No number on this page was produced by the app. It scores nothing and calls
- * nothing in this mode (docs/CONTRACT.md); everything shown came out of
- * `results.json`, which the coach writes.
+ * The two columns come from two different places and the page keeps them apart.
+ * The coach's figure is whatever `results.json` held when the run opened — the
+ * history, which the app never writes. Today's figure is what Azure returned
+ * for this sitting's recording, scored on this phone against the word's own
+ * sentence; a word whose attempt could not be scored says so rather than
+ * showing a number the app made up (docs/CONTRACT.md).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +73,21 @@ fun SayItDoneScreen(ui: SayItSentenceUi, onHome: () -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.End,
+                        )
+                    }
+                    // Today's instant score, next to the coach's, so a session
+                    // that moved a word shows it while he is still in it.
+                    val todayPron = row.today?.assessment?.pron ?: row.today?.assessment?.accuracy
+                    if (row.recorded) {
+                        Text(
+                            when {
+                                todayPron != null ->
+                                    stringResource(R.string.sayit_sentence_done_today, todayPron.roundToInt())
+                                else -> stringResource(R.string.sayit_sentence_done_today_pending)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (todayPron != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (!row.recorded) {

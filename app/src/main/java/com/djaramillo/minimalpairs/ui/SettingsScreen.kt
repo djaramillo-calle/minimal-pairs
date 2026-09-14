@@ -434,6 +434,15 @@ private fun AzureSection(
             trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "hide" else "show") } },
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(6.dp))
+        // Directly under the field, because this is the one thing about the key
+        // that is not obvious and the one thing that must not go wrong: this is
+        // the phone's own resource, never the coach's.
+        Text(
+            stringResource(R.string.settings_azure_separate),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { onSave(region, key); key = "" }, modifier = Modifier.height(48.dp)) { Text(stringResource(R.string.settings_azure_save)) }

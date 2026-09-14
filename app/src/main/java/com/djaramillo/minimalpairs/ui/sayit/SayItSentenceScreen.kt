@@ -48,18 +48,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.djaramillo.minimalpairs.R
+import com.djaramillo.minimalpairs.domain.SayItScoring
 import com.djaramillo.minimalpairs.storage.DataFolder
 import com.djaramillo.minimalpairs.ui.SectionCard
+import kotlin.math.roundToInt
 
 /**
  * One word of the Say-it run: the sentence in large type with the target word
  * picked out, the IPA under it, the coach's model clip, the record control and
  * then the comparison — his attempt and the model, back to back.
  *
- * The comparison is the centrepiece on purpose. The app scores nothing and
- * calls nothing (docs/CONTRACT.md), so hearing the two readings one after the
- * other is the only immediate feedback it can honestly offer; the numbers come
- * back from the cloud coach after the next sync.
+ * The comparison is the centrepiece: hearing his own reading against the model
+ * is the feedback no number replaces. Under it the score card shows what Azure
+ * made of the sentence a moment ago, scored on this phone with his own key —
+ * or, when that could not happen, says plainly that the recording is saved and
+ * the coach will score it at the next sync (docs/CONTRACT.md). It never shows a
+ * number the app worked out for itself.
  */
 @Composable
 fun SayItSentenceScreen(
@@ -152,6 +156,11 @@ fun SayItSentenceScreen(
             if (ui.attempt) {
                 Spacer(Modifier.height(20.dp))
                 CompareCard(ui, onCompare)
+            }
+
+            if (ui.scoring || ui.score != null || ui.scoreNote != null) {
+                Spacer(Modifier.height(16.dp))
+                ScoreCard(ui)
             }
 
             val notice = ui.notice
@@ -248,6 +257,103 @@ private fun RecordRow(ui: SayItSentenceUi, onRecord: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Today's score for the sentence just read, or the plain statement that it has
+ * none and the coach will give it one.
+ *
+ * Every number here came back from Azure a moment ago, scored against this
+ * word's own sentence. There is deliberately no "estimated", "approximate" or
+ * locally computed figure: when the assessment did not happen the card says the
+ * recording is saved and waiting, and says why, which is the honest answer on
+ * the underground or before a key has been entered (docs/CONTRACT.md).
+ */
+@Composable
+private fun ScoreCard(ui: SayItSentenceUi) {
+    SectionCard(stringResource(R.string.sayit_score_title)) {
+        val score = ui.score
+        when {
+            ui.scoring -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.sayit_score_scoring), style = MaterialTheme.typography.bodyLarge)
+            }
+
+            score != null -> {
+                ScoreLine(stringResource(R.string.sayit_score_overall), score.pron, headline = true)
+                ScoreLine(stringResource(R.string.sayit_score_accuracy), score.accuracy)
+                ScoreLine(stringResource(R.string.sayit_score_fluency), score.fluency)
+                ScoreLine(stringResource(R.string.sayit_score_completeness), score.completeness)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (score.flagged.isEmpty()) stringResource(R.string.sayit_score_clean)
+                    else stringResource(R.string.sayit_score_flagged, score.flagged.joinToString(", ")),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (score.flagged.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
+                )
+                if (!ui.scoreSaved) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.sayit_score_unsaved),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            else -> {
+                Text(stringResource(R.string.sayit_score_pending), style = MaterialTheme.typography.bodyLarge)
+                val why = unscoredText(ui.scoreNote)
+                if (why != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        why,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One `label … 71` row; a dimension Azure did not return simply says so. */
+@Composable
+private fun ScoreLine(label: String, value: Double?, headline: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            style = if (headline) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (value == null) stringResource(R.string.sayit_score_none)
+            else stringResource(R.string.sayit_score_value, value.roundToInt()),
+            style = if (headline) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+            fontWeight = if (headline) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}
+
+/**
+ * Why an attempt has no score yet, in one plain line, or null when there is
+ * nothing to add. Each of these leaves the recording and its sidecar in the
+ * folder untouched.
+ */
+@Composable
+fun unscoredText(reason: SayItScoring.Unscored?): String? = when (reason) {
+    SayItScoring.Unscored.NO_KEY -> stringResource(R.string.sayit_score_why_no_key)
+    SayItScoring.Unscored.NO_AUDIO -> stringResource(R.string.sayit_score_why_no_audio)
+    SayItScoring.Unscored.OFFLINE -> stringResource(R.string.sayit_score_why_offline)
+    SayItScoring.Unscored.AZURE_ERROR -> stringResource(R.string.sayit_score_why_azure)
+    SayItScoring.Unscored.NOT_HEARD -> stringResource(R.string.sayit_score_why_not_heard)
+    SayItScoring.Unscored.NOT_ASSESSED -> stringResource(R.string.sayit_score_why_not_assessed)
+    // The attempt itself did not reach the folder, which the record row already says.
+    SayItScoring.Unscored.NO_ATTEMPT -> null
+    null -> null
 }
 
 /**

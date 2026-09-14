@@ -4,13 +4,17 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.djaramillo.minimalpairs.AppContainer
+import com.djaramillo.minimalpairs.audio.AttemptAudio
 import com.djaramillo.minimalpairs.audio.AttemptRecorder
+import com.djaramillo.minimalpairs.clips.RenderPlan
 import com.djaramillo.minimalpairs.domain.SayItNames
 import com.djaramillo.minimalpairs.domain.SayItPlanner
+import com.djaramillo.minimalpairs.domain.SayItScoring
 import com.djaramillo.minimalpairs.domain.TimeUtil
 import com.djaramillo.minimalpairs.domain.model.AttemptSidecar
 import com.djaramillo.minimalpairs.domain.model.SayItResults
 import com.djaramillo.minimalpairs.domain.model.SayItWord
+import com.djaramillo.minimalpairs.speech.AzureAssessor
 import com.djaramillo.minimalpairs.storage.DataFolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +25,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToLong
 
 /** Which half of the comparison is sounding, so the screen can point at it. */
@@ -53,10 +58,28 @@ enum class SayItTrouble {
 data class SayItNotice(val trouble: SayItTrouble, val detail: String? = null)
 
 /**
- * One line of the end-of-run summary: what was practised and the last score the
- * cloud coach has for it. The score is whatever `results.json` held when the run
- * opened — it is never the app's own judgement, because the app scores nothing
- * in this mode (docs/CONTRACT.md).
+ * What became of one word's attempt in **this** sitting: the numbers Azure gave
+ * it on the phone, or the reason it has none and waits for the coach. Exactly
+ * one of [assessment] and [note] is set.
+ */
+data class SayItTodayScore(
+    val assessment: SayItScoring.Assessment? = null,
+    val note: SayItScoring.Unscored? = null,
+    /** Its `sayit/scores/<ts>_<id>.json` reached the folder. */
+    val saved: Boolean = false,
+    /** The attempt stem this belongs to, so a slow first take cannot overwrite a fast second one. */
+    val stem: String = "",
+)
+
+/**
+ * One line of the end-of-run summary: what was practised, the last score the
+ * cloud coach already had for it, and today's own score beside it so movement
+ * inside one sitting is visible.
+ *
+ * [lastScore] is whatever `results.json` held when the run opened — the coach's
+ * history, which the app never writes. [today] is this sitting's instant score,
+ * and it exists only when Azure actually returned one (docs/CONTRACT.md,
+ * "`sayit/scores/`"): the app never estimates one locally.
  */
 data class SayItDoneRow(
     val id: String,
@@ -65,6 +88,7 @@ data class SayItDoneRow(
     /** A recording of this word reached the folder during this run. */
     val recorded: Boolean,
     val lastScore: Double?,
+    val today: SayItTodayScore? = null,
 )
 
 /**
@@ -94,6 +118,14 @@ data class SayItSentenceUi(
     /** That recording reached the folder; false while it only exists in the cache. */
     val attemptSaved: Boolean = false,
     val playing: ComparePart = ComparePart.NONE,
+    /** The attempt just written is being scored on the phone. */
+    val scoring: Boolean = false,
+    /** Today's score for the current word, when Azure returned one. */
+    val score: SayItScoring.Assessment? = null,
+    /** Why the current word's attempt has no score and waits for the coach. */
+    val scoreNote: SayItScoring.Unscored? = null,
+    /** The score file reached `sayit/scores/`; false when there is a score that could not be written. */
+    val scoreSaved: Boolean = false,
     /** `RECORD_AUDIO` was refused: the mode degrades to reading along. */
     val micDenied: Boolean = false,
     val notice: SayItNotice? = null,
@@ -147,17 +179,27 @@ object SayItSweep {
  * back to back, and leave the recording in the synced folder for the cloud to
  * score.
  *
- * Two rules shape all of it. The app **never scores** a Say-it attempt and makes
- * **no network call** for this mode: the only honest immediate feedback it can
- * give is the comparison, and every number on the done page came from
- * `results.json`. And the unit is the word **in its sentence**, so the
- * [SayItWord] read from `words.json` is carried through to [AttemptSidecar]
- * untouched — the cloud scores the audio against that exact string, and a
- * trimmed or re-wrapped one would silently ruin the score.
+ * Two rules shape all of it.
  *
- * It is also strictly read-only on the coach's files. The only things it writes
- * are its own `sayit/attempts/` pair per recording, plus the 30-day retention
- * sweep it runs once when the mode opens.
+ * The unit is the word **in its sentence**. The [SayItWord] read from
+ * `words.json` is carried through to [AttemptSidecar], to the reference text
+ * Azure is given and to the score file untouched — every one of them scores or
+ * describes that exact string, and a trimmed or re-wrapped one would silently
+ * ruin the result.
+ *
+ * And a score is either real or absent. When the phone can assess the attempt —
+ * a key is set, the network is there, Azure answers — it does so at once and
+ * writes one immutable `sayit/scores/<ts>_<id>.json` beside the recording
+ * (docs/CONTRACT.md). When it cannot, the recording and the sidecar are kept
+ * exactly as before, **no** score file is written, and the screen says the
+ * attempt was saved and the coach will score it at the next sync. Nothing here
+ * ever estimates a number locally.
+ *
+ * It is strictly read-only on the coach's files. The only things it writes are
+ * its own `sayit/attempts/` pair per recording, a score file for an attempt
+ * that was scored, and the 30-day retention sweep it runs once when the mode
+ * opens. `sayit.zip` — and the `words.json` and `results.json` inside it — is
+ * the coach's.
  */
 class SayItViewModel(application: Application) : AndroidViewModel(application) {
     private val container = AppContainer.get(application)
@@ -190,6 +232,21 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Words whose recording reached the folder in this run; the done page marks them. */
     private val recorded = LinkedHashSet<String>()
+
+    /**
+     * This sitting's own scores, keyed by word id. Written from the scoring job,
+     * which runs outside [viewModelScope] so that a finished assessment still
+     * reaches `sayit/scores/`, and read from the main thread when the screen
+     * moves between words — hence a concurrent map rather than a plain one.
+     */
+    private val todayScores = ConcurrentHashMap<String, SayItTodayScore>()
+
+    /**
+     * The newest attempt stem per word. A second take can be recorded while the
+     * first is still being assessed, and the first must not then overwrite the
+     * second's result on screen.
+     */
+    private val latestStem = ConcurrentHashMap<String, String>()
 
     private var playJob: Job? = null
     private var recordJob: Job? = null
@@ -233,6 +290,8 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         if (!_ui.value.stale) return
         endWord()
         recorded.clear()
+        todayScores.clear()
+        latestStem.clear()
         results = null
         _ui.value = SayItSentenceUi()
         viewModelScope.launch { open() }
@@ -391,11 +450,18 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             attemptFile = target
             startedAt = began
             stopping = false
+            // A new take supersedes the last one's verdict: whatever is on
+            // screen describes a recording that is about to be replaced.
+            current.word?.let { todayScores.remove(it.id) }
             _ui.value = _ui.value.copy(
                 recording = true,
                 notice = null,
                 playing = ComparePart.NONE,
                 micDenied = false,
+                scoring = false,
+                score = null,
+                scoreNote = null,
+                scoreSaved = false,
             )
         }
     }
@@ -471,6 +537,111 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         )
         // The comparison is the point of the mode, so it starts by itself.
         onCompare()
+        // Scoring comes after the attempt is safely in the folder and never
+        // instead of it: an attempt that did not land gets no score file, and a
+        // scoring that fails leaves the attempt exactly as it is.
+        if (stem == null) {
+            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_ATTEMPT), scoring = false)
+        } else {
+            startScoring(word, stem, take.file, sidecar.started)
+        }
+    }
+
+    // ---- scoring on the phone ---------------------------------------------
+
+    /**
+     * Assess the attempt just written, with the learner's own phone-only Azure
+     * Speech resource (docs/CONTRACT.md, "`sayit/scores/`").
+     *
+     * The recording is decoded here, inside the write coroutine, because the
+     * cache file it reads is deleted the moment the word is left behind and
+     * [clearAttempt] waits only for that coroutine. The request itself runs in
+     * the container's scope so that an assessment in flight still finishes — and
+     * still writes its file — when the learner moves on or the screen goes away.
+     *
+     * Every early return is a *no score*: the recording and the sidecar stay,
+     * nothing is written, and the screen says the coach will score it.
+     */
+    private suspend fun startScoring(word: SayItWord, stem: String, audio: File, startedIso: String) {
+        latestStem[word.id] = stem
+        val credentials = withContext(Dispatchers.IO) { azureCredentials() }
+        if (credentials == null) {
+            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_KEY, stem = stem), scoring = false)
+            return
+        }
+        val wav = withContext(Dispatchers.IO) { AttemptAudio.wavForAssessment(audio) }
+        if (wav == null) {
+            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_AUDIO, stem = stem), scoring = false)
+            return
+        }
+        publish(word.id, null, scoring = true)
+        val (region, key) = credentials
+        container.scope.launch {
+            val answer = AzureAssessor(region, key).assess(wav, word)
+            val outcome = when (answer) {
+                is AzureAssessor.Answer.Body -> SayItScoring.outcome(word, stem, startedIso, answer.text)
+                is AzureAssessor.Answer.Failed ->
+                    SayItScoring.outcome(word, stem, startedIso, null, answer.reason)
+            }
+            val result = when (outcome) {
+                is SayItScoring.Outcome.NotScored ->
+                    SayItTodayScore(note = outcome.reason, stem = stem)
+                is SayItScoring.Outcome.Scored ->
+                    SayItTodayScore(
+                        assessment = outcome.assessment,
+                        saved = folder.writeSayItScore(outcome.fileName, outcome.json),
+                        stem = stem,
+                    )
+            }
+            publish(word.id, result, scoring = false)
+        }
+    }
+
+    /**
+     * The learner's own region and key from Settings, or null when either is
+     * missing or malformed — the ordinary state of a phone that has not been
+     * set up, and the commonest reason an attempt waits for the coach.
+     *
+     * This is the phone's **own** Speech resource, a second one created for it
+     * alone; the coach's key runs the coach's pipeline in the cloud and is never
+     * stored here (Settings says so where the key is entered).
+     */
+    private fun azureCredentials(): Pair<String, String>? {
+        val region = RenderPlan.normalizeRegion(container.prefs.azureRegion.orEmpty()) ?: return null
+        val key = RenderPlan.normalizeKey(container.prefs.azureKey.orEmpty()) ?: return null
+        return region to key
+    }
+
+    /**
+     * Record what became of one word's attempt and, when that word is still the
+     * one on screen and the result belongs to its newest take, show it.
+     * Callable from any thread.
+     */
+    private fun publish(id: String, result: SayItTodayScore?, scoring: Boolean) {
+        if (result != null) {
+            val newest = latestStem[id]
+            // A slow first take must not overwrite a faster second one.
+            if (result.stem.isNotEmpty() && newest != null && newest != result.stem) return
+            todayScores[id] = result
+        }
+        if (_ui.value.word?.id != id) return
+        _ui.value = _ui.value.copy(
+            scoring = scoring,
+            score = result?.assessment,
+            scoreNote = result?.note,
+            scoreSaved = result?.saved ?: false,
+        )
+    }
+
+    /** Show whatever this run already knows about the word now on screen. */
+    private fun showScoreOf(word: SayItWord?) {
+        val known = word?.let { todayScores[it.id] }
+        _ui.value = _ui.value.copy(
+            scoring = false,
+            score = known?.assessment,
+            scoreNote = known?.note,
+            scoreSaved = known?.saved ?: false,
+        )
     }
 
     // ---- moving on --------------------------------------------------------
@@ -485,6 +656,7 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         endWord()
         _ui.value = _ui.value.copy(index = current.index + 1, notice = null)
         prepareClip()
+        showScoreOf(_ui.value.word)
     }
 
     /** Leaving mid-run (the Back confirmation) still ends on the summary: the saved attempts are real. */
@@ -503,6 +675,7 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
                     sentence = w.sentence,
                     recorded = w.id in recorded,
                     lastScore = SayItPlanner.lastScore(w.id, results),
+                    today = todayScores[w.id],
                 )
             },
         )
@@ -532,6 +705,12 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             playing = ComparePart.NONE,
             clipReady = false,
             clipBusy = false,
+            // The score card describes the word being put down; the next word
+            // fills it again from [todayScores] if it has one of its own.
+            scoring = false,
+            score = null,
+            scoreNote = null,
+            scoreSaved = false,
         )
     }
 
