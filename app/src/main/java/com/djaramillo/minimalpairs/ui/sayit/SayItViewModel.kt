@@ -249,6 +249,18 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val latestStem = ConcurrentHashMap<String, String>()
 
+    /**
+     * Which sitting is on screen. An assessment deliberately outlives the word
+     * and the screen, so a learner who finishes a run and opens Say it again
+     * can be inside a **new** run of the same five words when the old run's
+     * answer lands. Without this the old score would be filed against the new
+     * sitting's word and shown as today's reading of a sentence he has not read
+     * yet. The score file itself is still written — it describes a real
+     * attempt — only the in-memory result is dropped.
+     */
+    @Volatile
+    private var run = 0
+
     private var playJob: Job? = null
     private var recordJob: Job? = null
     private var clipJob: Job? = null
@@ -290,6 +302,7 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
     fun onEnter() {
         if (!_ui.value.stale) return
         endWord()
+        run++
         recorded.clear()
         todayScores.clear()
         latestStem.clear()
@@ -567,18 +580,19 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      * nothing is written, and the screen says the coach will score it.
      */
     private suspend fun startScoring(word: SayItWord, stem: String, audio: File, startedIso: String) {
+        val forRun = run
         latestStem[word.id] = stem
         val credentials = withContext(Dispatchers.IO) { azureCredentials() }
         if (credentials == null) {
-            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_KEY, stem = stem), scoring = false)
+            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_KEY, stem = stem), false, forRun)
             return
         }
         val wav = withContext(Dispatchers.IO) { AttemptAudio.wavForAssessment(audio) }
         if (wav == null) {
-            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_AUDIO, stem = stem), scoring = false)
+            publish(word.id, SayItTodayScore(note = SayItScoring.Unscored.NO_AUDIO, stem = stem), false, forRun)
             return
         }
-        publish(word.id, null, scoring = true)
+        publish(word.id, null, true, forRun)
         val (region, key) = credentials
         container.scope.launch {
             // Nothing in here may escape: this job runs outside the screen's
@@ -607,7 +621,7 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 SayItTodayScore(note = SayItScoring.Unscored.AZURE_ERROR, stem = stem)
             }
-            publish(word.id, result, scoring = false)
+            publish(word.id, result, false, forRun)
         }
     }
 
@@ -631,7 +645,9 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
      * one on screen and the result belongs to its newest take, show it.
      * Callable from any thread.
      */
-    private fun publish(id: String, result: SayItTodayScore?, scoring: Boolean) {
+    private fun publish(id: String, result: SayItTodayScore?, scoring: Boolean, forRun: Int) {
+        // A sitting that has been left behind files nothing and shows nothing.
+        if (forRun != run) return
         if (result != null) {
             val newest = latestStem[id]
             // A slow first take must not overwrite a faster second one, nor one

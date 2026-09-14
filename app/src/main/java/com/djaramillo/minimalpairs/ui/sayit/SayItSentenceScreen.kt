@@ -348,6 +348,8 @@ fun unscoredText(reason: SayItScoring.Unscored?): String? = when (reason) {
     SayItScoring.Unscored.NO_KEY -> stringResource(R.string.sayit_score_why_no_key)
     SayItScoring.Unscored.NO_AUDIO -> stringResource(R.string.sayit_score_why_no_audio)
     SayItScoring.Unscored.OFFLINE -> stringResource(R.string.sayit_score_why_offline)
+    SayItScoring.Unscored.KEY_REJECTED -> stringResource(R.string.sayit_score_why_key_rejected)
+    SayItScoring.Unscored.THROTTLED -> stringResource(R.string.sayit_score_why_throttled)
     SayItScoring.Unscored.AZURE_ERROR -> stringResource(R.string.sayit_score_why_azure)
     SayItScoring.Unscored.NOT_HEARD -> stringResource(R.string.sayit_score_why_not_heard)
     SayItScoring.Unscored.NOT_ASSESSED -> stringResource(R.string.sayit_score_why_not_assessed)

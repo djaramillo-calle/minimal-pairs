@@ -1,6 +1,5 @@
 package com.djaramillo.minimalpairs.speech
 
-import com.djaramillo.minimalpairs.clips.AzureTts
 import com.djaramillo.minimalpairs.domain.SayItScoring
 import com.djaramillo.minimalpairs.domain.model.SayItWord
 import kotlinx.coroutines.Dispatchers
@@ -29,22 +28,30 @@ import java.net.UnknownHostException
  *
  * Everything it knows how to decide lives in [SayItScoring]; this only does
  * HTTP and turns each way of failing into one [SayItScoring.Unscored], because
- * a failure here must always end as *no score*, never as a low one. The learner
- * is waiting for the answer, so it retries a transient failure once and then
- * gives up rather than holding the screen.
+ * a failure here must always end as *no score*, never as a low one. The
+ * learner is watching the screen while it runs, which is what shapes the retry
+ * rule below.
  */
 class AzureAssessor(private val region: String, private val key: String) {
 
     /** Azure's answer to one recording: either a body to parse, or a reason there is none. */
     sealed class Answer {
         data class Body(val text: String) : Answer()
-        data class Failed(val reason: SayItScoring.Unscored, val detail: String? = null) : Answer()
+        data class Failed(val reason: SayItScoring.Unscored) : Answer()
     }
 
     /**
      * Assess [wav] (PCM16 mono 16 kHz, as [com.djaramillo.minimalpairs.audio.Wav.forAssessment]
      * produces) against [word]'s sentence. Never throws: every failure comes
      * back as [Answer.Failed].
+     *
+     * **Only a server fault is retried, and only once.** A rejected key, a
+     * throttled resource and a phone with no route to Azure all answer the same
+     * way a second later; and the two slow failures — a connect timeout and a
+     * read timeout — have already held the learner for ten and twenty-five
+     * seconds, so trying again would double a wait that ends in the same "the
+     * coach will score this" line. A 5xx is the one case where waiting a beat
+     * genuinely helps.
      */
     suspend fun assess(wav: ByteArray, word: SayItWord): Answer = withContext(Dispatchers.IO) {
         var last: Answer.Failed? = null
@@ -55,7 +62,7 @@ class AzureAssessor(private val region: String, private val key: String) {
                 is Answer.Failed -> {
                     last = answer
                     if (!retryable(answer.reason) || attempt == ATTEMPTS) return@withContext answer
-                    delay(RETRY_DELAY_MS)
+                    delay(retryDelayMs)
                 }
             }
         }
@@ -63,15 +70,15 @@ class AzureAssessor(private val region: String, private val key: String) {
     }
 
     /**
-     * A transient failure is worth exactly one more try. A rejected key, a
-     * throttled resource or a phone with no route to Azure will answer the same
-     * way a second later, and the learner would only wait longer for the same
-     * "the coach will score this" line.
+     * How long to wait before the one retry. Azure's own `Retry-After` wins
+     * when it is short enough to be worth holding the screen for; a longer one
+     * means the resource wants a rest the learner should not wait through, and
+     * [once] has already given up in that case.
      */
-    private fun retryable(reason: SayItScoring.Unscored): Boolean =
-        reason == SayItScoring.Unscored.AZURE_ERROR
+    private var retryDelayMs = RETRY_DELAY_MS
 
     private fun once(wav: ByteArray, sentence: String): Answer {
+        retryDelayMs = RETRY_DELAY_MS
         val c = try {
             open(SayItScoring.endpoint(region))
         } catch (e: Exception) {
@@ -90,7 +97,7 @@ class AzureAssessor(private val region: String, private val key: String) {
                 return Answer.Failed(SayItScoring.Unscored.OFFLINE)
             } catch (e: InterruptedIOException) {
                 // A timeout on a phone that is barely connected: the same thing
-                // to the learner as no connection at all.
+                // to the learner as no connection at all, and already a long wait.
                 return Answer.Failed(SayItScoring.Unscored.OFFLINE)
             } catch (e: IOException) {
                 return Answer.Failed(SayItScoring.Unscored.OFFLINE)
@@ -99,19 +106,31 @@ class AzureAssessor(private val region: String, private val key: String) {
                 val body = try {
                     c.inputStream.bufferedReader().use { it.readText() }
                 } catch (e: IOException) {
-                    return Answer.Failed(SayItScoring.Unscored.AZURE_ERROR, AzureTts.describe(code))
+                    return Answer.Failed(SayItScoring.Unscored.AZURE_ERROR)
                 }
                 return Answer.Body(body)
             }
-            // Everything else is "no score", with one plain sentence for the
-            // screen. 401/403 is the wrong key, 429 the free tier's rate limit,
-            // 5xx Azure itself; none of them is a number.
-            return Answer.Failed(SayItScoring.Unscored.AZURE_ERROR, AzureTts.describe(code))
+            // Everything else is "no score", sorted into the three things the
+            // learner can act on differently: his key is wrong and he must open
+            // Settings, the resource is busy and will come back by itself, or
+            // Azure itself is having a moment.
+            drainError(c)
+            val wait = retryAfterMs(c.getHeaderField("Retry-After"))
+            if (wait != null) retryDelayMs = wait
+            return Answer.Failed(reasonFor(code, wait))
         } catch (e: Exception) {
             return Answer.Failed(SayItScoring.Unscored.AZURE_ERROR)
         } finally {
             try { c.disconnect() } catch (e: Exception) { /* already gone */ }
         }
+    }
+
+    /**
+     * Read and discard the error body. An unread error stream keeps the
+     * connection out of the pool and the next attempt pays for a new one.
+     */
+    private fun drainError(c: HttpURLConnection) {
+        try { c.errorStream?.use { it.readBytes() } } catch (e: Exception) { /* nothing to learn from it */ }
     }
 
     private fun open(url: String): HttpURLConnection {
@@ -125,15 +144,61 @@ class AzureAssessor(private val region: String, private val key: String) {
     }
 
     companion object {
-        /** One retry, no more: the learner is looking at the screen. */
+        /** One retry, and only for a 5xx: the learner is looking at the screen. */
         const val ATTEMPTS = 2
         const val RETRY_DELAY_MS = 1_200L
+
+        /** Longer than this and the wait belongs to the coach, not to the learner. */
+        const val MAX_RETRY_AFTER_MS = 5_000L
+
         const val CONNECT_TIMEOUT_MS = 10_000
         const val READ_TIMEOUT_MS = 25_000
 
         /** Exactly what [com.djaramillo.minimalpairs.audio.Wav.forAssessment] produces. */
         const val CONTENT_TYPE = "audio/wav; codecs=audio/pcm; samplerate=16000"
 
+        private const val HTTP_UNAUTHORIZED = 401
+        private const val HTTP_FORBIDDEN = 403
+        private const val HTTP_NOT_FOUND = 404
+        private const val HTTP_TOO_MANY_REQUESTS = 429
+
         private const val USER_AGENT = "minimal-pairs-android"
+
+        /**
+         * What a non-200 status means to the learner. Pure, so the whole table
+         * is unit tested without a socket.
+         *
+         * [waitMs] is what [retryAfterMs] made of `Retry-After`: null means
+         * Azure asked for longer than the learner will stand at the screen, and
+         * a server fault then stops being something to retry and becomes one
+         * more "the coach will score this".
+         *
+         * Only [SayItScoring.Unscored.AZURE_ERROR] is retried, so this table is
+         * also the retry rule: a rejected key and a throttled resource answer
+         * the same way a second later and are never asked twice.
+         */
+        fun reasonFor(code: Int, waitMs: Long? = RETRY_DELAY_MS): SayItScoring.Unscored = when {
+            code == HTTP_UNAUTHORIZED || code == HTTP_FORBIDDEN || code == HTTP_NOT_FOUND ->
+                SayItScoring.Unscored.KEY_REJECTED
+            code == HTTP_TOO_MANY_REQUESTS -> SayItScoring.Unscored.THROTTLED
+            code >= 500 -> if (waitMs == null) SayItScoring.Unscored.THROTTLED else SayItScoring.Unscored.AZURE_ERROR
+            else -> SayItScoring.Unscored.AZURE_ERROR
+        }
+
+        /**
+         * `Retry-After` in milliseconds when it is short enough to wait for, the
+         * default when the header is absent or unreadable, and null when Azure
+         * asks for longer than [MAX_RETRY_AFTER_MS] — a wait that belongs to the
+         * coach, not to somebody holding a phone.
+         */
+        fun retryAfterMs(header: String?): Long? {
+            val seconds = header?.trim()?.toLongOrNull() ?: return RETRY_DELAY_MS
+            if (seconds < 0) return RETRY_DELAY_MS
+            val ms = seconds * 1000
+            return if (ms > MAX_RETRY_AFTER_MS) null else ms.coerceAtLeast(RETRY_DELAY_MS)
+        }
+
+        /** Whether [assess] will ask again after this outcome. */
+        fun retryable(reason: SayItScoring.Unscored): Boolean = reason == SayItScoring.Unscored.AZURE_ERROR
     }
 }

@@ -269,10 +269,13 @@ phone is lost, lent and backed up, and the pipeline the rest of the coaching
 system depends on must not go with it. Settings says so under the field.
 
 **A score is real or absent.** When the phone cannot assess an attempt — no key
-yet, no network, Azure refusing or throttling, a recording Azure heard no speech
-in — it keeps the recording and the sidecar exactly as it would have anyway,
-writes **no** score file, and tells the learner that the attempt is saved and
-the coach will score it at the next sync. The app never estimates, interpolates
+yet, no network, a key Azure rejects, a resource Azure is throttling, a server
+fault, a recording Azure heard no speech in — it keeps the recording and the
+sidecar exactly as it would have anyway, writes **no** score file, and tells the
+learner that the attempt is saved and the coach will score it at the next sync,
+and which of those happened. Only a server fault is asked again, once: a
+rejected key and a throttled resource answer the same way a second later, and a
+timeout has already held the learner long enough. The app never estimates, interpolates
 or defaults a score. That fallback is the ordinary path on the underground and
 before a key is entered, and it is the behaviour the whole mode degrades to.
 

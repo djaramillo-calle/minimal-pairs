@@ -255,6 +255,8 @@
     <string name="sayit_score_why_no_audio">This recording could not be prepared for scoring on the phone.</string>
     <string name="sayit_score_why_offline">No connection to Azure just now.</string>
     <string name="sayit_score_why_azure">Azure could not score this attempt just now.</string>
+    <string name="sayit_score_why_key_rejected">Azure rejected this phone\'s key. Check the key and the region in Settings → Azure Speech.</string>
+    <string name="sayit_score_why_throttled">Azure is limiting this free resource just now. The next sentence should score again.</string>
     <string name="sayit_score_why_not_heard">Azure heard no speech in this recording.</string>
     <string name="sayit_score_why_not_assessed">Azure returned no usable score for this attempt.</string>
 </resources>

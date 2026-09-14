@@ -67,7 +67,24 @@ object SayItScoring {
         /** Azure could not be reached at all — the underground, a dead Wi-Fi, a wrong region. */
         OFFLINE,
 
-        /** Azure answered, but with an error: a rejected key, a throttled resource, a server fault. */
+        /**
+         * Azure refused the credentials: a wrong key, a key rotated or deleted
+         * in the portal, a key that is not allowed in this region. It is told
+         * apart from [AZURE_ERROR] because it never fixes itself — the learner
+         * has to open Settings, and "could not score this just now" would let
+         * him drill for weeks with scoring quietly dead.
+         */
+        KEY_REJECTED,
+
+        /**
+         * Azure is rate-limiting this resource (429). The free tier allows a
+         * burst and then asks to wait, which a brisk sitting with re-takes can
+         * reach; it passes by itself, so it is neither retried nor confused
+         * with a broken key.
+         */
+        THROTTLED,
+
+        /** Azure answered, but with a server fault or an answer that made no sense. */
         AZURE_ERROR,
 
         /** Azure heard no speech (`NoMatch`, `InitialSilenceTimeout`, …). */
