@@ -505,11 +505,6 @@ class DataFolder(context: Context, private val prefs: Prefs) {
     /** Whether the folder holds a `clips.zip` at all — by name, nothing is read. */
     suspend fun hasClipsZip(): Boolean = withContext(Dispatchers.IO) { clipsZip() != null }
 
-    /** Size of the folder's `clips.zip`, or null when there is none. */
-    suspend fun clipsZipBytes(): Long? = withContext(Dispatchers.IO) {
-        try { clipsZip()?.length() } catch (e: Exception) { null }
-    }
-
     /**
      * Read the folder's `clips.zip` through [read], which is given the open
      * stream and must not keep it. Null when there is no zip or it cannot be
