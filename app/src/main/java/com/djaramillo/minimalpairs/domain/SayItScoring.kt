@@ -9,7 +9,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.util.Base64
 
@@ -159,13 +158,23 @@ object SayItScoring {
      * Null covers three different answers and the caller tells them apart with
      * [statusOf]: a body that is not the expected JSON, a `RecognitionStatus`
      * other than `Success` (Azure heard no speech), and a `Success` with no
-     * `PronunciationAssessment` block or with nothing usable in it. All three
-     * end the same way — no file, and the coach scores the attempt — because
-     * none of them is a score.
+     * usable assessment in it. All three end the same way — no file, and the
+     * coach scores the attempt — because none of them is a score.
+     *
+     * Every value is read defensively, as a primitive or not at all. The body
+     * is whatever came back over the network, and a field that arrives as an
+     * object where a string was expected must be one more "no score", never an
+     * exception thrown from a background job.
      */
-    fun parse(body: String): Assessment? {
+    fun parse(body: String): Assessment? = try {
+        parseOrThrow(body)
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun parseOrThrow(body: String): Assessment? {
         val root = rootOf(body) ?: return null
-        if (root["RecognitionStatus"]?.jsonPrimitive?.content != STATUS_SUCCESS) return null
+        if (text(root["RecognitionStatus"]) != STATUS_SUCCESS) return null
         val best = (root["NBest"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return null
         val assessment = Assessment(
             accuracy = score(scoreOf(best, "AccuracyScore")),
@@ -181,8 +190,15 @@ object SayItScoring {
     }
 
     /** `RecognitionStatus` of an answer, or null when the body is not the expected JSON. */
-    fun statusOf(body: String): String? =
-        rootOf(body)?.get("RecognitionStatus")?.jsonPrimitive?.content
+    fun statusOf(body: String): String? = try {
+        text(rootOf(body)?.get("RecognitionStatus"))
+    } catch (e: Exception) {
+        null
+    }
+
+    /** The content of a JSON string or number, or null for anything else (an object, an array, absent). */
+    private fun text(element: kotlinx.serialization.json.JsonElement?): String? =
+        (element as? JsonPrimitive)?.content
 
     /**
      * Why [body] produced no [Assessment]: [Unscored.NOT_HEARD] when Azure
@@ -220,10 +236,10 @@ object SayItScoring {
         val out = LinkedHashSet<String>()
         for (el in words) {
             val w = el as? JsonObject ?: continue
-            val error = scoreOf(w, "ErrorType")?.let { (it as? JsonPrimitive)?.content } ?: ERROR_NONE
+            val error = text(scoreOf(w, "ErrorType")) ?: ERROR_NONE
             if (error !in WORD_ERRORS) continue
-            val text = w["Word"]?.jsonPrimitive?.content?.trim().orEmpty()
-            if (text.isNotEmpty()) out.add(text)
+            val spelling = text(w["Word"])?.trim().orEmpty()
+            if (spelling.isNotEmpty()) out.add(spelling)
         }
         return out.toList()
     }

@@ -205,7 +205,7 @@
     <string name="sayit_sentence_leave_confirm">Leave</string>
     <string name="sayit_sentence_leave_cancel">Keep going</string>
     <string name="sayit_sentence_mic_title">The microphone, and where the recording goes</string>
-    <string name="sayit_sentence_mic_text">Android will ask for the microphone next. Your reading is saved as a file in your own synced folder and scored in the cloud with the rest of your coaching. This app never scores it and sends it nowhere itself.</string>
+    <string name="sayit_sentence_mic_text">Android will ask for the microphone next. Your reading is saved as a file in your own synced folder, where your coach picks it up. If you have entered this phone\'s own Azure key in Settings, the sentence is also sent straight to Azure for a score you see at once; without a key nothing leaves the phone but the sync.</string>
     <string name="sayit_sentence_mic_continue">Continue</string>
     <string name="sayit_sentence_mic_not_now">Not now</string>
     <string name="sayit_sentence_mic_off">Recording is off: the microphone was refused. You can still play the model and read along.</string>

@@ -34,10 +34,11 @@ import com.djaramillo.minimalpairs.R
  *
  * The permission is asked for at the moment he first taps record, and the
  * rationale is shown **before** the system dialog, because the honest thing to
- * say is where the recording goes: into his own synced folder, scored in the
- * cloud, never by the app (docs/CONTRACT.md). This launcher is the mode's own —
- * the pairs block's `micPrompt` plumbing in `AppViewModel` belongs to that block
- * and is left alone.
+ * say is where the recording goes: into his own synced folder for the coach,
+ * and — only when he has entered this phone's own Azure key — straight to Azure
+ * for the score he sees at once (docs/CONTRACT.md). This launcher is the mode's
+ * own — the pairs block's `micPrompt` plumbing in `AppViewModel` belongs to that
+ * block and is left alone.
  */
 @Composable
 fun SayItRoute(

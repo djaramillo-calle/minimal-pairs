@@ -17,6 +17,7 @@ import com.djaramillo.minimalpairs.domain.model.SayItWord
 import com.djaramillo.minimalpairs.speech.AzureAssessor
 import com.djaramillo.minimalpairs.storage.DataFolder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -580,21 +581,31 @@ class SayItViewModel(application: Application) : AndroidViewModel(application) {
         publish(word.id, null, scoring = true)
         val (region, key) = credentials
         container.scope.launch {
-            val answer = AzureAssessor(region, key).assess(wav, word)
-            val outcome = when (answer) {
-                is AzureAssessor.Answer.Body -> SayItScoring.outcome(word, stem, startedIso, answer.text)
-                is AzureAssessor.Answer.Failed ->
-                    SayItScoring.outcome(word, stem, startedIso, null, answer.reason)
-            }
-            val result = when (outcome) {
-                is SayItScoring.Outcome.NotScored ->
-                    SayItTodayScore(note = outcome.reason, stem = stem)
-                is SayItScoring.Outcome.Scored ->
-                    SayItTodayScore(
-                        assessment = outcome.assessment,
-                        saved = folder.writeSayItScore(outcome.fileName, outcome.json),
-                        stem = stem,
-                    )
+            // Nothing in here may escape: this job runs outside the screen's
+            // scope, so an exception would reach the process's default handler
+            // rather than a catch, and the learner would lose the app over an
+            // attempt that was already safely in the folder.
+            val result = try {
+                val answer = AzureAssessor(region, key).assess(wav, word)
+                val outcome = when (answer) {
+                    is AzureAssessor.Answer.Body -> SayItScoring.outcome(word, stem, startedIso, answer.text)
+                    is AzureAssessor.Answer.Failed ->
+                        SayItScoring.outcome(word, stem, startedIso, null, answer.reason)
+                }
+                when (outcome) {
+                    is SayItScoring.Outcome.NotScored ->
+                        SayItTodayScore(note = outcome.reason, stem = stem)
+                    is SayItScoring.Outcome.Scored ->
+                        SayItTodayScore(
+                            assessment = outcome.assessment,
+                            saved = folder.writeSayItScore(outcome.fileName, outcome.json),
+                            stem = stem,
+                        )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SayItTodayScore(note = SayItScoring.Unscored.AZURE_ERROR, stem = stem)
             }
             publish(word.id, result, scoring = false)
         }
