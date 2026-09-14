@@ -725,29 +725,28 @@ class DataFolder(context: Context, private val prefs: Prefs) {
             sayItLock.withLock { sweepLocked(results, now) }
         }
 
-    private fun sweepLocked(results: SayItResults?, now: java.time.Instant): Int? {
-        run {
-            try {
-                if (root() == null) return null
-                val dir = attemptsDir(create = false) ?: return 0
-                val present = childUris(dir)
-                val names = present.keys.toList()
-                var removed = 0
-                val going = (SayItCleanup.deletable(names, results, now) + SayItCleanup.orphans(names, now)).distinct()
-                for (name in going) {
-                    if (!SayItNames.isAttemptAudio(name)) continue
-                    val uri = present[name] ?: continue
-                    val gone = try { DocumentsContract.deleteDocument(resolver, uri) } catch (e: Exception) { false }
-                    if (gone) removed++
-                }
-                return removed
-            } catch (e: Exception) {
-                return null
+    private fun sweepLocked(results: SayItResults?, now: java.time.Instant): Int? = try {
+        val dir = if (root() == null) null else attemptsDir(create = false)
+        if (root() == null) {
+            null
+        } else if (dir == null) {
+            0
+        } else {
+            val present = childUris(dir)
+            val names = present.keys.toList()
+            var removed = 0
+            val going = (SayItCleanup.deletable(names, results, now) + SayItCleanup.orphans(names, now)).distinct()
+            for (name in going) {
+                if (!SayItNames.isAttemptAudio(name)) continue
+                val uri = present[name] ?: continue
+                val gone = try { DocumentsContract.deleteDocument(resolver, uri) } catch (e: Exception) { false }
+                if (gone) removed++
             }
+            removed
         }
+    } catch (e: Exception) {
+        null
     }
-
-    // ---- Say it helpers -------------------------------------------------
 
     // ---- Say it helpers -------------------------------------------------
 
