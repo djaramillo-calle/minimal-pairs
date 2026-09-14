@@ -32,8 +32,9 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Downloads `clips.zip` from the latest GitHub Release into `filesDir/clips/`.
  *
- * Only ever started by an explicit tap (Settings or the Home prompt). Streams
- * to `clips.zip.part` with byte progress, unpacks into a staging directory
+ * Started by an explicit tap (Settings or the Home prompt), or by [PackSync]
+ * when the data folder holds a `clips.zip` and this app has no usable pack.
+ * Streams to `clips.zip.part` with byte progress, unpacks into a staging directory
  * with [ZipRules] validation and a 200 MB cap, verifies `sha256.txt` when
  * present, checks the unpacked `index.json` with [DownloadCheck] (a placeholder
  * or partial pack, or one covering fewer catalog words than what is installed,
@@ -75,14 +76,38 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
     fun startFromUri(scope: CoroutineScope, uri: Uri, catalogVersion: String, catalogWords: Set<String>) =
         launch(scope, catalogVersion, catalogWords) { part -> copyFromUri(uri, part) }
 
+    /**
+     * Install a `clips.zip` that is already on the phone: [fill] writes the
+     * archive into the file it is given, and everything after that is the
+     * download's own path — unpack under [ZipRules], verify `sha256.txt`, ask
+     * [DownloadCheck] whether it may replace what is installed, swap the
+     * directory in. No network call is made anywhere in it.
+     *
+     * This is how the data folder's copy gets back in after a reinstall
+     * ([PackSync]), which is the whole reason the pack is only ever rendered
+     * once.
+     */
+    fun startFromLocalCopy(
+        scope: CoroutineScope,
+        catalogVersion: String,
+        catalogWords: Set<String>,
+        fill: suspend (File) -> Unit,
+    ) = launch(scope, catalogVersion, catalogWords, fill)
+
+    /**
+     * The job that was started, or null when one was already running. A caller
+     * that must know how this one ended — the automatic install from the data
+     * folder — joins it and reads [state]; asking the flow for the next
+     * terminal state instead would answer with a stale one from an earlier run.
+     */
     private fun launch(
         scope: CoroutineScope,
         catalogVersion: String,
         catalogWords: Set<String>,
         source: suspend (File) -> Unit,
-    ) {
-        if (job?.isActive == true) return
-        job = scope.launch(Dispatchers.IO) {
+    ): Job? {
+        if (job?.isActive == true) return null
+        val started = scope.launch(Dispatchers.IO) {
             try {
                 run(catalogVersion, catalogWords, source)
             } catch (e: CancellationException) {
@@ -92,6 +117,8 @@ class ClipDownloader(context: Context, private val pack: ClipPack) {
                 _state.value = State.Failed(e.message ?: e.javaClass.simpleName)
             }
         }
+        job = started
+        return started
     }
 
     fun cancel() {

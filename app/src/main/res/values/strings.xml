@@ -138,6 +138,10 @@
     <string name="settings_pack_failed">Download failed: %1$s</string>
     <string name="settings_pack_source">Source: %1$s</string>
     <string name="settings_pack_import">Import clips.zip…</string>
+    <string name="settings_pack_exporting">Saving clips.zip to the data folder… %1$d/%2$d files</string>
+    <string name="settings_pack_exported">Clip pack saved to the data folder (%1$s). It will be reused after a reinstall.</string>
+    <string name="settings_pack_importing">Installing the clip pack from the data folder…</string>
+    <string name="settings_pack_export_failed">clips.zip was not saved to the data folder: %1$s</string>
     <string name="settings_azure">Azure Speech — this phone\'s own key</string>
     <string name="settings_azure_intro">This phone uses its own Azure Speech resource for two things: scoring your Say it sentences the moment you record them, and rendering the clip pack. The free tier covers both (the whole pack is about 70,000 characters).</string>
     <string name="settings_azure_region">Region of this phone\'s resource (e.g. uksouth)</string>
@@ -166,6 +170,7 @@
     <string name="settings_azure_msg_missing">Key works, but these voices are missing in this region: %1$s</string>
     <string name="settings_azure_separate">Create a second, separate Azure Speech resource for this phone — its own key, its own region — and never paste the key your coach\'s pipeline uses. A free F0 resource is enough. Keeping them apart means a lost or shared phone can cost you this resource only, and the coach\'s pipeline keeps running whatever happens here.</string>
     <string name="settings_pack_import_hint">Import installs a clips.zip already on the phone (for example from the Releases page or Drive) with the same checks as a download.</string>
+    <string name="settings_pack_folder_hint">A complete pack is saved to the data folder as clips.zip on its own, once, and installed from there after a reinstall — so it is only ever rendered from Azure once. Your Drive sync uploads it that one time.</string>
 
     <string name="settings_sayit">Say it</string>
     <string name="settings_sayit_words">%1$d sentence(s) flagged by your coach are waiting.</string>

@@ -9,6 +9,7 @@ import com.djaramillo.minimalpairs.audio.SentencePlayer
 import com.djaramillo.minimalpairs.clips.ClipDownloader
 import com.djaramillo.minimalpairs.clips.ClipPack
 import com.djaramillo.minimalpairs.clips.PackRenderer
+import com.djaramillo.minimalpairs.clips.PackSync
 import com.djaramillo.minimalpairs.domain.AppJson
 import com.djaramillo.minimalpairs.domain.model.Catalog
 import com.djaramillo.minimalpairs.storage.DataFolder
@@ -31,7 +32,18 @@ class AppContainer private constructor(context: Context) {
     val pack = ClipPack(app)
     val downloader = ClipDownloader(app, pack)
     val renderer = PackRenderer(pack)
-    /** Outlives any screen: long jobs (rendering the pack) run here, not in a ViewModel. */
+
+    /**
+     * Publishes a complete pack to the data folder as `clips.zip` and installs
+     * it from there again after a reinstall, so the pack is rendered from
+     * Azure once and not once per install (docs/CONTRACT.md, "`clips.zip`").
+     */
+    val packSync = PackSync(pack, downloader, folder, prefs)
+
+    /**
+     * Outlives any screen: the long jobs (rendering the pack, publishing it to
+     * the data folder) run here, not in a ViewModel.
+     */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val player = Player(app)
 

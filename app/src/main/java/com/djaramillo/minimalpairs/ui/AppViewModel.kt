@@ -180,6 +180,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val downloadState: StateFlow<ClipDownloader.State> = downloader.state
     private val renderer = container.renderer
     val renderState: StateFlow<com.djaramillo.minimalpairs.clips.PackRenderer.State> = renderer.state
+    private val packSync = container.packSync
+    val packSyncState: StateFlow<com.djaramillo.minimalpairs.clips.PackSync.State> = packSync.state
 
     private val _screen = MutableStateFlow(Screen.HOME)
     val screen: StateFlow<Screen> = _screen
@@ -222,7 +224,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             var wasRunning = false
             downloader.state.collect { s ->
-                if (s is ClipDownloader.State.Done) pack.reload()
+                if (s is ClipDownloader.State.Done) { pack.reload(); syncPack() }
                 if (s is ClipDownloader.State.Done || wasRunning != s.isRunning) recompute()
                 wasRunning = s.isRunning
             }
@@ -232,8 +234,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             var wasRunning = false
             renderer.state.collect { s ->
                 val running = s.isRunning
-                if (wasRunning && !running) { pack.reload(); recompute() }
+                // A render that finished complete is the pack worth keeping: publish
+                // it to the data folder now, so the next install does not repeat it.
+                if (wasRunning && !running) { pack.reload(); syncPack(); recompute() }
                 wasRunning = running
+            }
+        }
+        viewModelScope.launch {
+            // Only the transitions: the export reports progress every few
+            // hundred files and recompute() walks the pack directory.
+            var wasRunning = false
+            packSync.state.collect { s ->
+                if (wasRunning != s.isRunning) recompute()
+                wasRunning = s.isRunning
             }
         }
     }
@@ -281,6 +294,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         folder.republishMissingSessions()
         folderStatus = folder.status()
         readSayItList()
+        syncPack()
+    }
+
+    /**
+     * Publish the clip pack to the data folder as `clips.zip`, or install the
+     * folder's copy when this app has no usable pack (docs/CONTRACT.md,
+     * "`clips.zip`"). Never renders: rendering is some 70,000 characters of
+     * Azure TTS and stays a deliberate Settings action.
+     *
+     * Returns at once — the work runs in the application scope, so it survives
+     * leaving the screen — and does nothing at all once the pack is published,
+     * which is every launch but the first.
+     */
+    private fun syncPack() {
+        val cat = catalog ?: return
+        if (renderer.state.value.isRunning || downloader.state.value.isRunning) return
+        packSync.run(container.scope, cat.version, cat.allTrainableWords())
     }
 
     /**
@@ -337,7 +367,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             packEmpty = merged.isEmpty || merged.words.isEmpty(),
             // Offer the download until a pack that says `complete: true` is installed
             // (a placeholder pack downloaded by an older build must not hide the button).
-            canDownload = merged.downloaded?.complete != true && !downloader.state.value.isRunning && !renderer.state.value.isRunning,
+            canDownload = merged.downloaded?.complete != true && !downloader.state.value.isRunning &&
+                !renderer.state.value.isRunning && !packSync.state.value.isRunning,
             schedulerError = schedulerError,
             planMessage = planResult.message,
             lastError = _home.value.lastError,
@@ -363,7 +394,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             catalogVersion = cat.version,
             azureRegion = prefs.azureRegion ?: "",
             azureKeySet = !prefs.azureKey.isNullOrEmpty(),
-            packBusy = downloader.state.value.isRunning,
+            packBusy = downloader.state.value.isRunning || packSync.state.value.isRunning,
             sayItWords = sayItWords,
             sayItMessage = sayItMessage,
         )

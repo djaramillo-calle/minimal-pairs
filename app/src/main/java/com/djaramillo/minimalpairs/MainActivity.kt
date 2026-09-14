@@ -49,6 +49,7 @@ private fun App(vm: AppViewModel = viewModel()) {
     val screen by vm.screen.collectAsStateWithLifecycle()
     val download by vm.downloadState.collectAsStateWithLifecycle()
     val render by vm.renderState.collectAsStateWithLifecycle()
+    val packSync by vm.packSyncState.collectAsStateWithLifecycle()
     // Rendering the pack with the learner's key takes a while: keep the screen on meanwhile.
     val view = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.LaunchedEffect(render.isRunning) {
@@ -105,6 +106,7 @@ private fun App(vm: AppViewModel = viewModel()) {
             SettingsScreen(
                 ui = settings,
                 download = download,
+                sync = packSync,
                 onBack = vm::goHome,
                 onFolderPicked = vm::onFolderPicked,
                 onForgetFolder = vm::forgetFolder,

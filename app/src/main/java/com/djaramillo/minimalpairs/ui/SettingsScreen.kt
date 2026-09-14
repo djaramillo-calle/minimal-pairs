@@ -39,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.djaramillo.minimalpairs.R
 import com.djaramillo.minimalpairs.clips.ClipDownloader
+import com.djaramillo.minimalpairs.clips.PackSync
 import com.djaramillo.minimalpairs.clips.ClipIndex
 import com.djaramillo.minimalpairs.clips.PackRenderer
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +58,7 @@ fun SettingsScreen(
     ui: SettingsUi,
     download: ClipDownloader.State,
     onBack: () -> Unit,
+    sync: PackSync.State = PackSync.State.Idle,
     onFolderPicked: (android.net.Uri?) -> Unit,
     onForgetFolder: () -> Unit,
     onOverride: (Override) -> Unit,
@@ -98,7 +100,11 @@ fun SettingsScreen(
             FolderSection(ui, onChoose = { picker.launch(Unit) }, onForget = onForgetFolder, onRepublish = onRepublish)
             PlanSection(ui)
             OverrideSection(ui, onOverride)
-            PackSection(ui, download, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded, locked = render.isRunning)
+            PackSection(
+                ui, download, sync, onDownload, onImportPack, onCancelDownload, onDeleteDownloaded,
+                // The renderer and the export both hold the pack directory.
+                locked = render.isRunning || sync.isRunning,
+            )
             AzureSection(ui, render, onSaveAzure, onTestAzure, onForgetAzure, onRender, onCancelRender)
             SayItSection(ui)
             SectionCard(stringResource(R.string.settings_versions)) {
@@ -311,11 +317,13 @@ private fun OverrideSection(ui: SettingsUi, onOverride: (Override) -> Unit) {
 private fun PackSection(
     ui: SettingsUi,
     download: ClipDownloader.State,
+    /** The automatic export to / install from the data folder (docs/CONTRACT.md, "`clips.zip`"). */
+    sync: PackSync.State,
     onDownload: () -> Unit,
     onImport: (android.net.Uri) -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
-    /** True while the on-phone renderer writes the same directory. */
+    /** True while the on-phone renderer or the export holds the same directory. */
     locked: Boolean = false,
 ) {
     // The system file picker; a clips.zip copied to the phone (Downloads, Drive) installs like a download.
@@ -363,6 +371,7 @@ private fun PackSection(
             )
             ClipDownloader.State.Idle -> {}
         }
+        SyncLine(sync)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (download.isRunning) {
@@ -389,6 +398,43 @@ private fun PackSection(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            stringResource(R.string.settings_pack_folder_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * What the automatic export to the data folder is doing, if anything. It runs
+ * on its own at launch and needs no button: this is only so the learner can see
+ * that the 60 MB write is happening, and see it plainly if it failed.
+ */
+@Composable
+private fun SyncLine(sync: PackSync.State) {
+    when (sync) {
+        is PackSync.State.Exporting -> {
+            Text(stringResource(R.string.settings_pack_exporting, sync.done, sync.total))
+            LinearProgressIndicator(
+                progress = { if (sync.total > 0) sync.done.toFloat() / sync.total else 0f },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        PackSync.State.Importing -> {
+            Text(stringResource(R.string.settings_pack_importing))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        is PackSync.State.Exported -> Text(
+            stringResource(R.string.settings_pack_exported, bytesText(sync.bytes)),
+            color = MaterialTheme.colorScheme.primary,
+        )
+        is PackSync.State.Failed -> Text(
+            stringResource(R.string.settings_pack_export_failed, sync.message),
+            color = MaterialTheme.colorScheme.error,
+        )
+        is PackSync.State.Skipped -> {}
+        PackSync.State.Idle -> {}
     }
 }
 
