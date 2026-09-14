@@ -121,6 +121,54 @@ class WavTest {
     }
 
     @Test
+    fun energy_above_the_new_nyquist_is_filtered_out_not_folded_into_speech() {
+        // A 12 kHz component of a 44.1 kHz take has nowhere to go at 16 kHz.
+        // Plain decimation folds it to 4 kHz at nearly full amplitude, on top
+        // of the vowel, and Azure scores that faithfully: the one way this
+        // drill could mark the learner down for a noise the phone made.
+        val from = 44_100
+        val tone = ShortArray((from * 0.25).toInt()) {
+            (sin(2.0 * Math.PI * 12_000.0 * it / from) * 20000).toInt().toShort()
+        }
+        val out = Wav.resample(tone, from, rate)
+        assertEquals((rate * 0.25).toInt(), out.size)
+        // Measured away from the first and last half-window, where repeating
+        // the edge sample of a bare tone makes a step of its own. A real
+        // recording begins and ends in silence, and gets 400 ms more of it
+        // before it is sent.
+        val edge = 40
+        val peak = (edge until out.size - edge).maxOf { abs(out[it].toInt()) }
+        assertTrue("out-of-band tone survived at $peak of 20000", peak < 400)
+    }
+
+    @Test
+    fun speech_band_content_passes_through_at_full_amplitude() {
+        // The filter must not eat the band being assessed.
+        val from = 44_100
+        val tone = ShortArray((from * 0.25).toInt()) {
+            (sin(2.0 * Math.PI * 1_000.0 * it / from) * 20000).toInt().toShort()
+        }
+        val out = Wav.resample(tone, from, rate)
+        val peak = out.maxOf { abs(it.toInt()) }
+        assertTrue("1 kHz was attenuated to $peak of 20000", peak > 19_000)
+        assertEquals(1_000.0, dominantHz(out, rate), 8.0)
+    }
+
+    @Test
+    fun the_ends_of_a_recording_keep_their_level() {
+        // The window runs off the array at both ends; normalising by the taps'
+        // own sum keeps the gain at 1 there, or the first and last syllables
+        // would fade and read as mumbling.
+        val from = 48_000
+        val flat = ShortArray(from / 4) { 12_000 }
+        val out = Wav.resample(flat, from, rate)
+        assertTrue(out.size > 100)
+        for (i in listOf(0, 1, 2, out.size / 2, out.size - 3, out.size - 2, out.size - 1)) {
+            assertTrue("sample $i was ${out[i]}", abs(out[i] - 12_000) < 400)
+        }
+    }
+
+    @Test
     fun a_nonsense_rate_is_survived_rather_than_crashing() {
         val pcm = shortArrayOf(1, 2, 3)
         assertSame(pcm, Wav.resample(pcm, 0, rate))
